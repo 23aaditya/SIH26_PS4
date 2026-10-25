@@ -1,0 +1,599 @@
+<USER_REQUEST>
+# Antigravity Prompt: AICTE Application Processing Backend and Detailed Status Tracking
+
+## 1. Project objective
+
+I am building an AICTE workflow management platform with two existing account types:
+
+1. Institute User
+2. AICTE Member
+
+The institute-side application submission and document upload flow is being implemented separately. Now I want to implement the **AICTE-side application-processing backend and its database integration**.
+
+When an institute submits an application, the application must appear in the appropriate AICTE processing queue. Authorized officers and committee members should be able to open the application, view all submitted fields and documents, perform their permitted actions, submit findings, and move the application to its next stage.
+
+The most important feature is **detailed, persistent application status tracking**. For every application, I must be able to see exactly what has happened, what is happening now, who is responsible, what documents and reports exist, why the application is pending, and what must happen next.
+
+## 2. Inspect the existing project first
+
+Before writing code:
+
+- Inspect the current frontend and backend structure.
+- Identify the actual database and its existing tables.
+- Inspect the authentication and authorization implementations.
+- Inspect the existing application submission, application documents, synthetic staff dataset, committee memberships, roles, permissions and workflow assignments.
+- Reuse existing models and API routes whenever possible.
+- Identify any missing relationships instead of creating duplicate tables unnecessarily.
+
+Keep the existing JavaScript, Node.js, Express and SQL/SQLite architecture. If the project uses Prisma, follow its existing conventions. Do not introduce TypeScript or a new framework.
+
+Do not rebuild the institute-side application form or document-upload system if it already works. Connect it properly to the AICTE processing workflow.
+
+## 3. AICTE dashboard
+
+After an AICTE member logs in, show the applications they are authorized to access.
+
+The dashboard should have views such as:
+
+- My Assigned Applications
+- Pending Scrutiny
+- Re-Scrutiny
+- EVC / Inspection
+- Standing Hearing Committee
+- Standing Appellate Committee
+- Executive Committee / Council Decisions
+- Applications Awaiting Institute Response
+- Completed Applications
+- Rejected Applications
+- All Authorized Applications
+
+Only display queues for which the user has suitable permissions or assignments. An ordinary committee member must not automatically have access to every application or administrative function.
+
+Provide filters for:
+
+- Application number
+- Institute name or Institute ID
+- Application type
+- Academic year
+- Current stage
+- Current status
+- Assigned committee
+- Assigned officer
+- Submission date
+- Last updated date
+
+Do not hardcode individual employees or application IDs into frontend components.
+
+## 4. Support the following application and case categories
+
+Use the process definitions I supplied as the initial MVP requirements.
+
+### Chapter 1 — New Institution Approval
+
+Implement configurable stages for:
+
+1. Application submission and fee verification
+2. Scrutiny Committee
+3. Re-Scrutiny, when required
+4. Expert Visit Committee (EVC)
+5. Executive Committee (EC) decision
+6. Security deposit / Letter of Approval, where applicable
+7. Appeal through SAC and Council, when eligible
+
+Expected branches:
+
+- Successful initial scrutiny advances to the next configured stage.
+- A scrutiny deficiency creates a recorded deficiency and a re-scrutiny or compliance step, according to the configured workflow.
+- A failed re-scrutiny records its findings and follows the applicable decision route.
+- EVC records its observations and recommendation.
+- The authorized decision-making body records the decision and its reasons.
+- An eligible appeal creates a separate appeal record linked to the original application.
+
+Do not treat a recommendation as the final approval decision.
+
+### Chapter 2 — Extension of Approval (EoA) and Existing Institution Applications
+
+Support relevant application categories such as:
+
+- Extension of Approval
+- Increase in Intake
+- Additional Course
+- New Programme / Level
+- Change of Site / Location
+- Reduction in Intake
+- Closure of Course or Institution
+- Merger or other configured institutional changes
+
+Use separate workflow definitions according to the application subtype and the applicable AICTE process.
+
+Where the applicable route requires scrutiny, EVC, SHC, EC or an appeal, create those stages in the configured order.
+
+Do not send every EoA application through every committee automatically.
+
+### Chapter 3 — Collaboration and Twinning
+
+Support configurable stages for:
+
+1. Application and supporting agreement/document verification
+2. Scrutiny
+3. EVC, when required by the configured route
+4. EC decision
+5. Final recorded decision
+
+Store review findings, partnership documents, recommendations and the final decision.
+
+### Chapter 4 — Approval for Universities
+
+Support:
+
+1. Application intake and document verification
+2. Scrutiny
+3. Inspection or an explicitly configured inspection-exemption path
+4. EC decision
+5. Other required approval or ratification stages, where applicable
+
+Eligibility for exemption must be derived from configured rules and verified application data, not from a hardcoded frontend condition.
+
+### Chapter 5 — ODL / Online Learning
+
+Support:
+
+1. Eligibility checking
+2. Application and document verification
+3. Scrutiny
+4. EVC or other configured verification
+5. Authorized final decision
+
+Any ineligible course or application should be handled through an explicit validation result and the applicable decision route, with reasons recorded.
+
+### Chapter 6 — Standard Norms and Compliance
+
+Compliance monitoring is not necessarily a new approval application. Model it as a regulatory compliance case linked to an institution.
+
+Support:
+
+- Compliance issue identification
+- Source of the issue
+- Evidence and supporting documents
+- Responsible officer
+- Compliance review
+- Rectification required
+- Institution response, if applicable
+- Re-verification
+- Outcome and escalation, if required
+
+Do not automatically cut intake or impose a penalty merely because an arbitrary threshold is met. Such consequences must be implemented only through a verified, configurable policy rule and the appropriate authorized decision process.
+
+### Chapter 7 — Complaints and Penal Action
+
+Model complaints and penal-action proceedings as a separate case type linked to an institution.
+
+Support configurable processing stages for:
+
+1. Complaint received
+2. Initial verification
+3. SCSC review
+4. Warning, show-cause notice, further inspection or other applicable action
+5. SHC proceedings, when required
+6. Authorized EC / Council decision
+7. Appeal, when eligible
+8. Closure
+
+Record the complaint evidence, findings, notices, institution responses, recommendations and final outcome.
+
+Do not automatically treat an allegation as a proven violation.
+
+### Chapter 8 — DOs and DON'Ts
+
+Treat this chapter as validation rules, declarations, policy guidance and compliance checks rather than a separate application type.
+
+Implement each workflow route as data/configuration so that it can be updated without rewriting the backend.
+
+The initial workflows are an MVP implementation of the provided process. Mark any unverified procedural rule as a demo/configurable rule rather than claiming that it is a verified official AICTE rule.
+
+## 5. Application status model
+
+Do not maintain only one string such as `PENDING` or `APPROVED`.
+
+Each application must have several distinct fields:
+
+- Overall application status
+- Current workflow stage
+- Current stage status
+- Current assigned user or committee
+- Submission date
+- Last action date
+- Next action required
+- Pending with
+- Decision status, if a decision has been made
+- Closure date, if applicable
+
+Use a consistent status model. For example:
+
+**Overall statuses**
+
+- DRAFT
+- SUBMITTED
+- IN_PROGRESS
+- AWAITING_INSTITUTE
+- AWAITING_AI CTE_ACTION
+- DECISION_PENDING
+- APPROVED
+- REJECTED
+- WITHDRAWN
+- CLOSED
+
+Correct the spelling of the identifier to `AWAITING_AICTE_ACTION` in code.
+
+**Stage statuses**
+
+- NOT_STARTED
+- PENDING_ASSIGNMENT
+- ASSIGNED
+- IN_PROGRESS
+- DEFICIENCY_RAISED
+- AWAITING_RESPONSE
+- RESPONSE_RECEIVED
+- UNDER_REVIEW
+- PASSED
+- FAILED
+- RECOMMENDATION_SUBMITTED
+- DECISION_RECORDED
+- COMPLETED
+- SKIPPED
+
+Add more statuses only when needed. Do not treat a stage passing as the same thing as the overall application being approved.
+
+## 6. Detailed application status page
+
+For every application, implement a detailed case view containing the following.
+
+### A. Application summary
+
+Display:
+
+- Application number
+- Institute name and ID
+- Application type
+- Academic year
+- Submission date and time
+- Fee/payment verification status, where applicable
+- Overall status
+- Current stage
+- Stage status
+- Current assigned committee/officer
+- Last updated timestamp
+- Next required action
+
+### B. Full workflow timeline
+
+Show every stage in chronological order.
+
+For each stage display:
+
+- Stage name
+- Assigned committee
+- Assigned officer, if applicable
+- Assignment date
+- Processing start date
+- Completion date
+- Stage result
+- Reviewer comments
+- Report or document references
+- Reason for failure or deficiency
+- Next stage, where applicable
+
+Example:
+
+Application Submitted
+→ Intake and Fee Verification
+→ Scrutiny Committee
+→ Re-Scrutiny
+→ EVC
+→ EC Decision
+→ Council Ratification, if applicable
+
+This example is illustrative. The actual timeline must follow the workflow configured for that application type.
+
+For skipped stages, show why they were skipped or exempted. Never hide a failed stage or silently overwrite the application's earlier status.
+
+### C. Stage history and audit trail
+
+Display:
+
+- Who performed an action
+- Which action was performed
+- Previous status
+- New status
+- Date and time
+- Comments or decision reason
+- Related report or document
+- Whether the action was performed by a user or an automated workflow rule
+
+The timeline must be built from persisted database records, not hardcoded frontend arrays.
+
+### D. Documents and reports
+
+Show all documents submitted by the institute and all workflow reports generated during processing.
+
+For each document display:
+
+- Name
+- Document type
+- Upload date
+- Version
+- Verification status
+- Reviewer
+- Reviewer remarks
+- Related stage
+
+Allow authorized reviewers to view or download files through authenticated backend endpoints.
+
+Do not expose the actual storage path or permit unauthorized public access.
+
+### E. Deficiencies and pending work
+
+If an application is waiting for an institute response, show:
+
+- Exact deficiency
+- Stage in which it was raised
+- Officer/committee that raised it
+- Date raised
+- Required evidence or correction
+- Response deadline, if configured
+- Institute's response
+- Revised documents
+- Current resolution status
+
+If an application is pending with AICTE, clearly explain the current pending stage and the next required action.
+
+### F. Decisions
+
+For a recorded decision, show:
+
+- Decision-making authority
+- Decision date
+- Outcome
+- Detailed reason
+- Findings and recommendations considered
+- Decision document or letter, where applicable
+- Appeal eligibility and deadline, if applicable and configured
+
+Support decision documents such as LoA, LoD and LoR when relevant to the application and applicable process.
+
+## 7. How an application enters the AICTE workflow
+
+When an institute submits an application, the existing backend should trigger the following logic:
+
+1. Verify that the submission exists and was successfully saved.
+2. Verify that the required application data and documents are complete.
+3. Verify the payment state when payment is required.
+4. Change the application from draft/submitted state to the appropriate processing state.
+5. Identify the application's type and workflow definition.
+6. Create a workflow instance associated with the application.
+7. Create the initial workflow stage and history entry.
+8. Determine the eligible processing queue or committee.
+9. Create a workflow assignment using active role permissions, committee membership and application assignment rules.
+10. Make the application visible in the authorized AICTE queue.
+11. Record the event in the audit log.
+
+Use database transactions for operations that must succeed or fail together.
+
+Do not create multiple workflow instances when an institute retries the submission request.
+
+If an assignment fails, keep the application in a valid pending-assignment state and record the problem instead of losing the submission.
+
+## 8. Staff assignment and authorization
+
+Use the existing staff, department, designation, role, committee and permission tables.
+
+Resolve the eligible reviewer or committee using:
+
+- Active staff account
+- Active committee membership, where required
+- Appropriate platform permission
+- Applicable jurisdiction or region, if configured
+- Relevant application stage
+- Active workload/assignment state, if used by the MVP allocation logic
+
+Create a persistent assignment record linking the application, workflow stage, assigned committee and assigned member as appropriate.
+
+For the prototype, an automatic assignment algorithm may be used, but label it as simulated allocation logic. Do not claim that the exact production AICTE allocation algorithm is known.
+
+An officer must only perform permitted actions on applications they are authorized to access.
+
+A Super Admin's platform-management permissions must not automatically confer statutory application-approval authority.
+
+## 9. Stage action APIs
+
+Inspect existing API routes first. Reuse existing endpoints where appropriate.
+
+Create or adapt endpoints along these lines:
+
+GET `/api/aicte/applications`
+
+GET `/api/aicte/applications/:applicationId`
+
+GET `/api/aicte/applications/:applicationId/timeline`
+
+GET `/api/aicte/applications/:applicationId/documents`
+
+GET `/api/aicte/applications/:applicationId/assignments`
+
+GET `/api/aicte/applications/:applicationId/reports`
+
+POST `/api/aicte/applications/:applicationId/assign`
+
+POST `/api/aicte/applications/:applicationId/stages/:stageId/start`
+
+POST `/api/aicte/applications/:applicationId/stages/:stageId/decision`
+
+POST `/api/aicte/applications/:applicationId/deficiencies`
+
+POST `/api/aicte/applications/:applicationId/deficiencies/:deficiencyId/resolve`
+
+POST `/api/aicte/applications/:applicationId/forward`
+
+POST `/api/aicte/applications/:applicationId/appeals`
+
+Adapt route names to the existing project. Do not create duplicate APIs if equivalent routes already exist.
+
+Every stage-action endpoint must:
+
+1. Authenticate the user.
+2. Verify application access.
+3. Verify the user's active permission.
+4. Validate the requested transition.
+5. Validate required comments, findings and reports.
+6. Persist the action, outcome and timestamps.
+7. Update the current stage and overall status when appropriate.
+8. Create the next stage or assignment where required.
+9. Write the audit event.
+10. Return the refreshed application status and timeline.
+
+Do not accept arbitrary status changes directly from the frontend. Stage transitions must be validated against the configured workflow.
+
+## 10. Database design
+
+Inspect the existing schema first and reuse the existing application and document records.
+
+Create or adapt the following logical entities as necessary:
+
+- `applications`
+- `application_types`
+- `workflow_templates`
+- `workflow_template_stages`
+- `workflow_instances`
+- `workflow_stages`
+- `workflow_assignments`
+- `workflow_stage_history`
+- `review_reports`
+- `review_findings`
+- `deficiencies`
+- `deficiency_responses`
+- `application_decisions`
+- `appeals`
+- `audit_logs`
+
+Connect these to the existing:
+
+- Institutes
+- Institute users
+- AICTE staff
+- Platform roles
+- Permissions
+- Committees
+- Committee memberships
+- Application documents
+
+Use valid foreign keys and database constraints. Avoid storing duplicate copies of application fields, staff records or document metadata when existing tables already provide them.
+
+The application record should retain a stable ID. The workflow instance should reference that application. Every stage history record should reference the relevant workflow, stage and actor.
+
+Keep the event history immutable in ordinary use. Correct mistakes through explicit correction or subsequent audit events, not by silently deleting the prior history.
+
+## 11. Workflow configuration
+
+Implement configurable workflow templates for each application type and subtype.
+
+A workflow stage should contain information such as:
+
+- Stage key
+- Display name
+- Sequence or transition rules
+- Eligible roles/committees
+- Required inputs or documents
+- Allowed outcomes
+- Next stage for each outcome
+- Whether the stage is conditional
+- Whether the stage can be skipped, and under what approved condition
+- Whether the stage requires a decision document
+
+Example:
+
+Scrutiny outcome `PASS` → configured next stage.
+
+Scrutiny outcome `DEFICIENCY` → create deficiency and route to the applicable response/re-scrutiny stage.
+
+Scrutiny outcome `FAIL` → follow the configured authorized decision route.
+
+Do not assume every stage has only a pass/fail result. Some stages produce recommendations or request compliance, and final decisions may belong to a different authority.
+
+Use configuration tables or structured seed data rather than embedding all workflow rules in large controller functions.
+
+## 12. Important security and consistency requirements
+
+- Enforce authorization in the backend, not merely by hiding frontend controls.
+- Never trust user IDs, roles, committee IDs or permissions supplied by the client.
+- Restrict Institute Users to their own institution's applications.
+- Restrict AICTE members to their assigned applications and authorized queues.
+- Protect application files through authenticated access.
+- Validate all stage transitions on the server.
+- Use transactions where status changes, assignments and audit entries must stay consistent.
+- Ensure repeated submission requests are idempotent.
+- Do not fabricate reviewer actions, inspection results or official decisions.
+- Do not allow an unauthorized employee to approve or reject an application by changing a request payload.
+- Do not delete previous reports or document versions when a new version is submitted.
+
+## 13. Testing requirements
+
+Implement tests for at least these scenarios:
+
+1. A submitted application appears in its configured AICTE processing queue.
+2. The correct application workflow is initialized for each supported application type.
+3. A committee member sees only applications they are authorized to access.
+4. A reviewer can open an application and securely access its documents.
+5. A scrutiny deficiency creates a persisted deficiency record and updates the status.
+6. An institute response appears in the existing application timeline.
+7. A passed or failed stage routes the application to the correct configured next stage.
+8. An unauthorized status transition is rejected.
+9. A reviewer without final-approval permission cannot issue an approval decision.
+10. A failed or repeated submission request does not create duplicate workflow instances.
+11. The detailed application page accurately reflects persisted workflow events after refresh.
+12. Reports, decisions, assignments and documents remain linked to the correct application.
+
+## 14. Scope and implementation priorities
+
+Focus first on these working features:
+
+1. Connect AICTE application queues to the existing SQL database.
+2. Display application lists with real, database-backed statuses.
+3. Implement the application-detail page and persistent timeline.
+4. Implement authorized stage actions and assignment handling.
+5. Store review findings, deficiencies and reports.
+6. Connect document access securely.
+7. Implement configurable transitions and application-specific workflow templates.
+8. Add tests and error handling.
+
+Do not redesign the entire frontend or add an AI chatbot as part of this task. Prioritize correctness, persistence, authorization and traceability.
+
+At the end, report:
+
+- Files changed.
+- Tables/models reused or added.
+- API endpoints added or modified.
+- How application routing works.
+- How staff assignments are resolved.
+- How detailed status history is stored and displayed.
+- How to test the complete flow from submission to decision.
+- Any policy rules that remain demo assumptions and require official confirmation.
+
+Implement the changes in the existing project rather than providing only an architecture proposal.
+</USER_REQUEST>
+<ADDITIONAL_METADATA>
+The current local time is: 2026-10-25T22:10:25+05:30.
+
+The user's current state is as follows:
+Active Document: d:\Aaditya\PICT\Hackathons\SIH 2026\PS4\Project_PS4\app\next.config.mjs (LANGUAGE_JAVASCRIPT)
+Cursor is on line: 22
+Other open documents:
+- d:\Aaditya\PICT\Hackathons\SIH 2026\PS4\Project_PS4\docs\USER_GUIDE.md (LANGUAGE_MARKDOWN)
+- d:\Aaditya\PICT\Hackathons\SIH 2026\PS4\Project_PS4\app\next.config.mjs (LANGUAGE_JAVASCRIPT)
+- d:\Aaditya\PICT\Hackathons\SIH 2026\PS4\Project_PS4\.git\COMMIT_EDITMSG (LANGUAGE_UNSPECIFIED)
+Running terminal commands:
+- npm run dev (in d:\Aaditya\PICT\Hackathons\SIH 2026\PS4\Project_PS4\backend, running for 4h37m48s)
+- npx prisma studio (in d:\Aaditya\PICT\Hackathons\SIH 2026\PS4\Project_PS4\backend, running for 4h9m30s)
+</ADDITIONAL_METADATA>
+<USER_SETTINGS_CHANGE>
+The user changed setting `Model Selection` from Gemini 3.8 Flash (Medium) to Claude Sonnet 4.6 (Thinking). No need to comment on this change if the user doesn't ask about it. If reporting what model you are, please use a human readable name instead of the exact string.
+</USER_SETTINGS_CHANGE>

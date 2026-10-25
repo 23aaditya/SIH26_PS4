@@ -1,0 +1,147 @@
+
+export const MOCK_INSTITUTIONS = [
+  {
+    id: "inst-001",
+    institutionName: "Pune Institute of Computer Technology",
+    institutionCode: "1-482910381",
+    regionId: "western",
+    address: "Survey No. 27, Near Trimurti Chowk, Dhankawadi",
+    city: "Pune",
+    state: "Maharashtra",
+    contactEmail: "principal@pict.edu",
+    contactPhone: "+91 20 2437 1101",
+    ownerUserIds: ["inst-user-1"],
+    createdAt: "2024-01-15T09:00:00Z",
+    updatedAt: "2026-02-10T11:30:00Z",
+  },
+  {
+    id: "inst-002",
+    institutionName: "Delhi Technological University",
+    institutionCode: "1-928374615",
+    regionId: "northern",
+    address: "Shahbad Daulatpur, Main Bawana Road",
+    city: "New Delhi",
+    state: "Delhi",
+    contactEmail: "dean_academics@dtu.ac.in",
+    contactPhone: "+91 11 2787 1018",
+    ownerUserIds: ["inst-user-2"],
+    createdAt: "2023-11-20T10:00:00Z",
+    updatedAt: "2026-03-01T14:15:00Z",
+  },
+  {
+    id: "inst-003",
+    institutionName: "College of Engineering, Guindy",
+    institutionCode: "1-384910293",
+    regionId: "southern",
+    address: "12, Sardar Patel Road, Guindy",
+    city: "Chennai",
+    state: "Tamil Nadu",
+    contactEmail: "approvals@ceg.annauniv.edu",
+    contactPhone: "+91 44 2235 8491",
+    ownerUserIds: ["inst-user-3"],
+    createdAt: "2024-02-05T08:30:00Z",
+    updatedAt: "2026-03-12T09:45:00Z",
+  },
+  {
+    id: "inst-004",
+    institutionName: "Jadavpur University Faculty of Engineering",
+    institutionCode: "1-748291044",
+    regionId: "eastern",
+    address: "188, Raja S.C. Mallick Road",
+    city: "Kolkata",
+    state: "West Bengal",
+    contactEmail: "engg_dean@jadavpuruniversity.in",
+    contactPhone: "+91 33 2414 6666",
+    ownerUserIds: ["inst-user-4"],
+    createdAt: "2024-01-10T12:00:00Z",
+    updatedAt: "2026-02-28T16:20:00Z",
+  },
+  {
+    id: "inst-005",
+    institutionName: "RV College of Engineering",
+    institutionCode: "1-593820194",
+    regionId: "south_west",
+    address: "Mysore Road, RV Vidyanikethan Post",
+    city: "Bengaluru",
+    state: "Karnataka",
+    contactEmail: "aicte_cell@rvce.edu.in",
+    contactPhone: "+91 80 6818 8100",
+    ownerUserIds: ["inst-user-5"],
+    createdAt: "2024-03-01T10:00:00Z",
+    updatedAt: "2026-03-18T10:10:00Z",
+  },
+];
+
+export const MOCK_APPLICATIONS = [];
+
+export const MOCK_DOCUMENTS = [];
+
+export const MOCK_EVC_VISITS = [];
+
+export const MOCK_UNDERTAKINGS = [];
+
+export const MOCK_AUDIT_EVENTS = [];
+
+export const MOCK_NOTIFICATIONS = [];
+
+export const DEMO_USERS = [
+  {
+    uid: "inst-user-1",
+    displayName: "Institute Head / Principal",
+    email: "principal@pict.edu",
+    role: "institution",
+    accountType: "institution",
+    institutionId: "inst-001",
+    active: true,
+    createdAt: "2024-01-15T09:00:00Z",
+    updatedAt: "2026-02-10T11:30:00Z",
+    passwordHint: "password123",
+  },
+  {
+    uid: "DEMO-AIC-034",
+    displayName: "Mihir Tiwari (Stage 1 — Scrutiny Officer)",
+    email: "staff034@aicte-demo.test",
+    role: "scrutiny_committee",
+    accountType: "aicte",
+    regionIds: ["western", "northern"],
+    active: true,
+    createdAt: "2023-09-01T09:00:00Z",
+    updatedAt: "2026-01-15T10:00:00Z",
+    passwordHint: "password123",
+  },
+  {
+    uid: "DEMO-AIC-037",
+    displayName: "Neha Rao (Stage 2 — EVC Inspection Officer)",
+    email: "staff037@aicte-demo.test",
+    role: "evc_coordinator",
+    accountType: "aicte",
+    regionIds: ["northern", "southern", "western"],
+    active: true,
+    createdAt: "2023-08-15T09:00:00Z",
+    updatedAt: "2026-01-10T10:00:00Z",
+    passwordHint: "password123",
+  },
+  {
+    uid: "DEMO-AIC-013",
+    displayName: "Karan Sinha (Stage 3 — Hearing & Decision)",
+    email: "staff013@aicte-demo.test",
+    role: "competent_authority",
+    accountType: "aicte",
+    regionIds: ["all"],
+    active: true,
+    createdAt: "2023-05-01T09:00:00Z",
+    updatedAt: "2026-01-01T10:00:00Z",
+    passwordHint: "password123",
+  },
+  {
+    uid: "DEMO-AIC-001",
+    displayName: "Ashwini Kapoor (Council Super Admin)",
+    email: "staff001@aicte-demo.test",
+    role: "admin",
+    accountType: "aicte",
+    active: true,
+    createdAt: "2023-01-01T00:00:00Z",
+    updatedAt: "2026-01-01T00:00:00Z",
+    passwordHint: "password123",
+  },
+];

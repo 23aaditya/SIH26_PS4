@@ -1,0 +1,101 @@
+﻿employee_code,full_name,email,account_type,designation,organization_unit,reports_to,employment_status,account_status,identity_verified,platform_roles,committee_memberships
+DEMO-AIC-001,Ashwini Kapoor,staff001@aicte-demo.test,AICTE_STAFF,Technical Officer,e-Governance Cell,DEMO-AIC-010 — Pranav Bansal,SYNTHETIC_ACTIVE,ACTIVE_BOOTSTRAP_DEMO,YES,SUPER_ADMIN,
+DEMO-AIC-002,Meera Nair,staff002@aicte-demo.test,AICTE_STAFF,Chairperson,AICTE Headquarters,,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,GOVERNANCE_AUTHORITY,EXECUTIVE_COMMITTEE:MEMBER [DEMO-EC-DOCKET-01]; COUNCIL:MEMBER [DEMO-COUNCIL-DOCKET-01]
+DEMO-AIC-003,Shreya Kaur,staff003@aicte-demo.test,AICTE_STAFF,Vice-Chairperson,AICTE Headquarters,DEMO-AIC-002 — Meera Nair,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,GOVERNANCE_AUTHORITY,EXECUTIVE_COMMITTEE:MEMBER [DEMO-EC-DOCKET-01]; COUNCIL:MEMBER [DEMO-COUNCIL-DOCKET-01]
+DEMO-AIC-004,Sakshi Menon,staff004@aicte-demo.test,AICTE_STAFF,Member Secretary,AICTE Headquarters,DEMO-AIC-002 — Meera Nair,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,GOVERNANCE_AUTHORITY,EXECUTIVE_COMMITTEE:MEMBER [DEMO-EC-DOCKET-01]; COUNCIL:MEMBER [DEMO-COUNCIL-DOCKET-01]
+DEMO-AIC-005,Neha Bhat,staff005@aicte-demo.test,AICTE_STAFF,Advisor,Approval Bureau,DEMO-AIC-004 — Sakshi Menon,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,UNIT_HEAD,EXECUTIVE_COMMITTEE:MEMBER [DEMO-EC-DOCKET-01]
+DEMO-AIC-006,Shreya Bhat,staff006@aicte-demo.test,AICTE_STAFF,Advisor,Administration Bureau,DEMO-AIC-004 — Sakshi Menon,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,UNIT_HEAD,COUNCIL:MEMBER [DEMO-COUNCIL-DOCKET-01]
+DEMO-AIC-007,Rohit Pandey,staff007@aicte-demo.test,AICTE_STAFF,Director,Approval Bureau,DEMO-AIC-005 — Neha Bhat,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,UNIT_HEAD,COUNCIL:MEMBER [DEMO-COUNCIL-DOCKET-01]
+DEMO-AIC-008,Manish Pillai,staff008@aicte-demo.test,AICTE_STAFF,Director,Administration Bureau,DEMO-AIC-006 — Shreya Bhat,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,UNIT_HEAD,
+DEMO-AIC-009,Neha Saxena,staff009@aicte-demo.test,AICTE_STAFF,Director,Finance Bureau,DEMO-AIC-006 — Shreya Bhat,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,UNIT_HEAD,
+DEMO-AIC-010,Pranav Bansal,staff010@aicte-demo.test,AICTE_STAFF,Director,e-Governance Cell,DEMO-AIC-006 — Shreya Bhat,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,UNIT_HEAD,
+DEMO-AIC-011,Smita Borkar,staff011@aicte-demo.test,AICTE_STAFF,Director,Planning & Coordination Cell,DEMO-AIC-005 — Neha Bhat,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,UNIT_HEAD,
+DEMO-AIC-012,Manish Nair,staff012@aicte-demo.test,AICTE_STAFF,Director,Legal Cell,DEMO-AIC-004 — Sakshi Menon,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,UNIT_HEAD,
+DEMO-AIC-013,Karan Sinha,staff013@aicte-demo.test,AICTE_STAFF,Regional Officer,Regional Office — Northern Region,DEMO-AIC-007 — Rohit Pandey,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REGIONAL_OFFICER,
+DEMO-AIC-014,Girish Mishra,staff014@aicte-demo.test,AICTE_STAFF,Regional Officer,Regional Office — Western Region,DEMO-AIC-007 — Rohit Pandey,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REGIONAL_OFFICER,
+DEMO-AIC-015,Tanvi Bose,staff015@aicte-demo.test,AICTE_STAFF,Regional Officer,Regional Office — Southern Region,DEMO-AIC-007 — Rohit Pandey,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REGIONAL_OFFICER,
+DEMO-AIC-016,Pranav Dutta,staff016@aicte-demo.test,AICTE_STAFF,Regional Officer,Regional Office — Eastern Region,DEMO-AIC-007 — Rohit Pandey,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REGIONAL_OFFICER,
+DEMO-AIC-017,Nikhil Saha,staff017@aicte-demo.test,AICTE_STAFF,Regional Officer,Regional Office — Central Region,DEMO-AIC-007 — Rohit Pandey,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REGIONAL_OFFICER,
+DEMO-AIC-018,Neha Borkar,staff018@aicte-demo.test,AICTE_STAFF,Deputy Director,Approval Bureau,DEMO-AIC-007 — Rohit Pandey,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,UNIT_HEAD,
+DEMO-AIC-019,Eshan Saha,staff019@aicte-demo.test,AICTE_STAFF,Assistant Director,Approval Bureau,DEMO-AIC-018 — Neha Borkar,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,UNIT_HEAD,
+DEMO-AIC-020,Rohit Nair,staff020@aicte-demo.test,AICTE_STAFF,Technical Officer,Approval Bureau,DEMO-AIC-019 — Eshan Saha,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,SUPPORT_STAFF,
+DEMO-AIC-021,Farah Saha,staff021@aicte-demo.test,AICTE_STAFF,Section Officer,Administration Bureau,DEMO-AIC-008 — Manish Pillai,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,UNIT_HEAD,
+DEMO-AIC-022,Girish Das,staff022@aicte-demo.test,AICTE_STAFF,Administrative Officer,Administration Bureau,DEMO-AIC-021 — Farah Saha,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,UNIT_HEAD,
+DEMO-AIC-023,Hema Sinha,staff023@aicte-demo.test,AICTE_STAFF,Accounts Officer,Finance Bureau,DEMO-AIC-009 — Neha Saxena,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,UNIT_HEAD,
+DEMO-AIC-024,Varun Sharma,staff024@aicte-demo.test,AICTE_STAFF,IT Systems Officer,e-Governance Cell,DEMO-AIC-010 — Pranav Bansal,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,SUPPORT_STAFF,
+DEMO-AIC-025,Pranav Rao,staff025@aicte-demo.test,AICTE_STAFF,Legal Officer,Legal Cell,DEMO-AIC-012 — Manish Nair,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,SUPPORT_STAFF,
+DEMO-AIC-026,Anusha Fernandes,staff026@aicte-demo.test,AICTE_STAFF,Assistant Director,Planning & Coordination Cell,DEMO-AIC-011 — Smita Borkar,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,UNIT_HEAD,
+DEMO-AIC-027,Kavita Das,staff027@aicte-demo.test,AICTE_STAFF,Deputy Director,e-Governance Cell,DEMO-AIC-010 — Pranav Bansal,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,UNIT_HEAD,
+DEMO-AIC-028,Zoya Nair,staff028@aicte-demo.test,AICTE_STAFF,Deputy Director,Finance Bureau,DEMO-AIC-009 — Neha Saxena,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,UNIT_HEAD,
+DEMO-AIC-029,Chirag Trivedi,staff029@aicte-demo.test,AICTE_STAFF,Assistant Regional Officer,Regional Office — Northern Region,DEMO-AIC-013 — Karan Sinha,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REGIONAL_OFFICER,
+DEMO-AIC-030,Farah Bhat,staff030@aicte-demo.test,AICTE_STAFF,Assistant Regional Officer,Regional Office — Western Region,DEMO-AIC-014 — Girish Mishra,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REGIONAL_OFFICER,
+DEMO-AIC-031,Deepak Patil,staff031@aicte-demo.test,AICTE_STAFF,Assistant Regional Officer,Regional Office — Southern Region,DEMO-AIC-015 — Tanvi Bose,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REGIONAL_OFFICER,
+DEMO-AIC-032,Devika Shah,staff032@aicte-demo.test,AICTE_STAFF,Assistant Regional Officer,Regional Office — Eastern Region,DEMO-AIC-016 — Pranav Dutta,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REGIONAL_OFFICER,
+DEMO-AIC-033,Girish Kulkarni,staff033@aicte-demo.test,AICTE_STAFF,Assistant Regional Officer,Regional Office — Central Region,DEMO-AIC-017 — Nikhil Saha,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REGIONAL_OFFICER,
+DEMO-AIC-034,Mihir Tiwari,staff034@aicte-demo.test,AICTE_STAFF,Approval Officer,Approval Bureau,DEMO-AIC-018 — Neha Borkar,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REVIEWING_OFFICER,SCRUTINY:MEMBER [DEMO-SCRUTINY-POOL-01]
+DEMO-AIC-035,Varun Rane,staff035@aicte-demo.test,AICTE_STAFF,Technical Officer,Approval Bureau,DEMO-AIC-019 — Eshan Saha,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REVIEWING_OFFICER,SCRUTINY:MEMBER [DEMO-SCRUTINY-POOL-01]
+DEMO-AIC-036,Dhanashree Bansal,staff036@aicte-demo.test,AICTE_STAFF,Programme Officer,Approval Bureau,DEMO-AIC-020 — Rohit Nair,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REVIEWING_OFFICER,SCRUTINY:MEMBER [DEMO-SCRUTINY-POOL-01]
+DEMO-AIC-037,Neha Rao,staff037@aicte-demo.test,AICTE_STAFF,Senior Assistant,Approval Bureau,DEMO-AIC-018 — Neha Borkar,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REVIEWING_OFFICER,EVC:MEMBER [DEMO-EVC-POOL-01]
+DEMO-AIC-038,Suresh Rao,staff038@aicte-demo.test,AICTE_STAFF,Junior Assistant,Approval Bureau,DEMO-AIC-019 — Eshan Saha,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REVIEWING_OFFICER,EVC:MEMBER [DEMO-EVC-POOL-01]
+DEMO-AIC-039,Tanvi Venkatesh,staff039@aicte-demo.test,AICTE_STAFF,Data Entry Operator,Approval Bureau,DEMO-AIC-020 — Rohit Nair,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REVIEWING_OFFICER,EVC:MEMBER [DEMO-EVC-POOL-01]
+DEMO-AIC-040,Abhishek Yadav,staff040@aicte-demo.test,AICTE_STAFF,Approval Officer,Approval Bureau,DEMO-AIC-018 — Neha Borkar,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REVIEWING_OFFICER,SHC:MEMBER [DEMO-SHC-QUEUE-01]
+DEMO-AIC-041,Akanksha Das,staff041@aicte-demo.test,AICTE_STAFF,Technical Officer,Approval Bureau,DEMO-AIC-019 — Eshan Saha,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REVIEWING_OFFICER,SHC:MEMBER [DEMO-SHC-QUEUE-01]
+DEMO-AIC-042,Varun Yadav,staff042@aicte-demo.test,AICTE_STAFF,Programme Officer,Approval Bureau,DEMO-AIC-020 — Rohit Nair,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REVIEWING_OFFICER,SAC:MEMBER [DEMO-SAC-QUEUE-01]
+DEMO-AIC-043,Gaurav Venkatesh,staff043@aicte-demo.test,AICTE_STAFF,Senior Assistant,Approval Bureau,DEMO-AIC-018 — Neha Borkar,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REVIEWING_OFFICER,
+DEMO-AIC-044,Akanksha Joshi,staff044@aicte-demo.test,AICTE_STAFF,Junior Assistant,Approval Bureau,DEMO-AIC-019 — Eshan Saha,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REVIEWING_OFFICER,
+DEMO-AIC-045,Mahesh Menon,staff045@aicte-demo.test,AICTE_STAFF,Data Entry Operator,Approval Bureau,DEMO-AIC-020 — Rohit Nair,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REVIEWING_OFFICER,
+DEMO-AIC-046,Divya Saha,staff046@aicte-demo.test,AICTE_STAFF,Approval Officer,Approval Bureau,DEMO-AIC-018 — Neha Borkar,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REVIEWING_OFFICER,
+DEMO-AIC-047,Vivek Pandey,staff047@aicte-demo.test,AICTE_STAFF,Technical Officer,Approval Bureau,DEMO-AIC-019 — Eshan Saha,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REVIEWING_OFFICER,
+DEMO-AIC-048,Meera Banerjee,staff048@aicte-demo.test,AICTE_STAFF,Programme Officer,Approval Bureau,DEMO-AIC-020 — Rohit Nair,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REVIEWING_OFFICER,
+DEMO-AIC-049,Nitin Saha,staff049@aicte-demo.test,AICTE_STAFF,Administrative Officer,Administration Bureau,DEMO-AIC-021 — Farah Saha,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REVIEWING_OFFICER,
+DEMO-AIC-050,Dhanashree Saxena,staff050@aicte-demo.test,AICTE_STAFF,Senior Assistant,Administration Bureau,DEMO-AIC-022 — Girish Das,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REVIEWING_OFFICER,
+DEMO-AIC-051,Mahesh Kamat,staff051@aicte-demo.test,AICTE_STAFF,Junior Assistant,Administration Bureau,DEMO-AIC-021 — Farah Saha,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REVIEWING_OFFICER,
+DEMO-AIC-052,Rishabh Naidu,staff052@aicte-demo.test,AICTE_STAFF,Data Entry Operator,Administration Bureau,DEMO-AIC-022 — Girish Das,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REVIEWING_OFFICER,
+DEMO-AIC-053,Harish Mukherjee,staff053@aicte-demo.test,AICTE_STAFF,Section Officer,Administration Bureau,DEMO-AIC-021 — Farah Saha,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REVIEWING_OFFICER,
+DEMO-AIC-054,Sanjana Bose,staff054@aicte-demo.test,AICTE_STAFF,Administrative Officer,Administration Bureau,DEMO-AIC-022 — Girish Das,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REVIEWING_OFFICER,
+DEMO-AIC-055,Sameer Bhat,staff055@aicte-demo.test,AICTE_STAFF,Senior Assistant,Administration Bureau,DEMO-AIC-021 — Farah Saha,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REVIEWING_OFFICER,
+DEMO-AIC-056,Zoya Naidu,staff056@aicte-demo.test,AICTE_STAFF,Junior Assistant,Administration Bureau,DEMO-AIC-022 — Girish Das,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REVIEWING_OFFICER,
+DEMO-AIC-057,Meera Chauhan,staff057@aicte-demo.test,AICTE_STAFF,Data Entry Operator,Administration Bureau,DEMO-AIC-021 — Farah Saha,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REVIEWING_OFFICER,
+DEMO-AIC-058,Manish Patil,staff058@aicte-demo.test,AICTE_STAFF,Section Officer,Administration Bureau,DEMO-AIC-022 — Girish Das,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REVIEWING_OFFICER,
+DEMO-AIC-059,Mohan Kaur,staff059@aicte-demo.test,AICTE_STAFF,Finance Officer,Finance Bureau,DEMO-AIC-023 — Hema Sinha,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REVIEWING_OFFICER,
+DEMO-AIC-060,Akanksha Prasad,staff060@aicte-demo.test,AICTE_STAFF,Accounts Assistant,Finance Bureau,DEMO-AIC-028 — Zoya Nair,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REVIEWING_OFFICER,
+DEMO-AIC-061,Rhea Reddy,staff061@aicte-demo.test,AICTE_STAFF,Accounts Officer,Finance Bureau,DEMO-AIC-023 — Hema Sinha,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REVIEWING_OFFICER,
+DEMO-AIC-062,Rahul Malhotra,staff062@aicte-demo.test,AICTE_STAFF,Senior Assistant,Finance Bureau,DEMO-AIC-028 — Zoya Nair,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,READ_ONLY_AUDITOR; REVIEWING_OFFICER,
+DEMO-AIC-063,Pranav Sharma,staff063@aicte-demo.test,AICTE_STAFF,Finance Officer,Finance Bureau,DEMO-AIC-023 — Hema Sinha,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REVIEWING_OFFICER,
+DEMO-AIC-064,Rohit Das,staff064@aicte-demo.test,AICTE_STAFF,Accounts Assistant,Finance Bureau,DEMO-AIC-028 — Zoya Nair,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REVIEWING_OFFICER,
+DEMO-AIC-065,Zoya Chatterjee,staff065@aicte-demo.test,AICTE_STAFF,IT Systems Officer,e-Governance Cell,DEMO-AIC-024 — Varun Sharma,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REVIEWING_OFFICER,
+DEMO-AIC-066,Divya Mishra,staff066@aicte-demo.test,AICTE_STAFF,IT Support Executive,e-Governance Cell,DEMO-AIC-027 — Kavita Das,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REVIEWING_OFFICER,
+DEMO-AIC-067,Amol Verma,staff067@aicte-demo.test,AICTE_STAFF,IT Consultant,e-Governance Cell,DEMO-AIC-024 — Varun Sharma,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REVIEWING_OFFICER,
+DEMO-AIC-068,Vivek Purohit,staff068@aicte-demo.test,AICTE_STAFF,Technical Officer,e-Governance Cell,DEMO-AIC-027 — Kavita Das,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REVIEWING_OFFICER,
+DEMO-AIC-069,Aditi Pandey,staff069@aicte-demo.test,AICTE_STAFF,Data Entry Operator,e-Governance Cell,DEMO-AIC-024 — Varun Sharma,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REVIEWING_OFFICER,
+DEMO-AIC-070,Varun Trivedi,staff070@aicte-demo.test,AICTE_STAFF,IT Systems Officer,e-Governance Cell,DEMO-AIC-027 — Kavita Das,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REVIEWING_OFFICER,
+DEMO-AIC-071,Zoya Menon,staff071@aicte-demo.test,AICTE_STAFF,IT Support Executive,e-Governance Cell,DEMO-AIC-024 — Varun Sharma,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REVIEWING_OFFICER,
+DEMO-AIC-072,Nitin Patel,staff072@aicte-demo.test,AICTE_STAFF,IT Consultant,e-Governance Cell,DEMO-AIC-027 — Kavita Das,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REVIEWING_OFFICER,
+DEMO-AIC-073,Sneha Kulkarni,staff073@aicte-demo.test,AICTE_STAFF,Legal Officer,Legal Cell,DEMO-AIC-025 — Pranav Rao,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REVIEWING_OFFICER,
+DEMO-AIC-074,Chirag Patil,staff074@aicte-demo.test,AICTE_STAFF,Senior Assistant,Legal Cell,DEMO-AIC-012 — Manish Nair,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REVIEWING_OFFICER,
+DEMO-AIC-075,Siddharth Menon,staff075@aicte-demo.test,AICTE_STAFF,Legal Officer,Legal Cell,DEMO-AIC-025 — Pranav Rao,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REVIEWING_OFFICER,
+DEMO-AIC-076,Neha Pillai,staff076@aicte-demo.test,AICTE_STAFF,Programme Officer,Planning & Coordination Cell,DEMO-AIC-026 — Anusha Fernandes,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REVIEWING_OFFICER,
+DEMO-AIC-077,Kavita Venkatesh,staff077@aicte-demo.test,AICTE_STAFF,Policy Consultant,Planning & Coordination Cell,DEMO-AIC-011 — Smita Borkar,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REVIEWING_OFFICER,
+DEMO-AIC-078,Abhishek Desai,staff078@aicte-demo.test,AICTE_STAFF,Senior Assistant,Planning & Coordination Cell,DEMO-AIC-026 — Anusha Fernandes,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REVIEWING_OFFICER,
+DEMO-AIC-079,Nitin Bansal,staff079@aicte-demo.test,AICTE_STAFF,Programme Officer,Planning & Coordination Cell,DEMO-AIC-011 — Smita Borkar,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REVIEWING_OFFICER,
+DEMO-AIC-080,Arjun Nair,staff080@aicte-demo.test,AICTE_STAFF,Policy Consultant,Planning & Coordination Cell,DEMO-AIC-026 — Anusha Fernandes,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,REVIEWING_OFFICER,
+DEMO-AIC-081,Anusha Kamat,staff081@aicte-demo.test,AICTE_STAFF,Approval Officer,Regional Office — Northern Region,DEMO-AIC-029 — Chirag Trivedi,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,SUPPORT_STAFF,
+DEMO-AIC-082,Sakshi Nair,staff082@aicte-demo.test,AICTE_STAFF,Data Entry Operator,Regional Office — Northern Region,DEMO-AIC-013 — Karan Sinha,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,SUPPORT_STAFF,
+DEMO-AIC-083,Farah Patel,staff083@aicte-demo.test,AICTE_STAFF,Data Entry Operator,Regional Office — Western Region,DEMO-AIC-030 — Farah Bhat,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,SUPPORT_STAFF,
+DEMO-AIC-084,Sanjana Venkatesh,staff084@aicte-demo.test,AICTE_STAFF,Approval Officer,Regional Office — Western Region,DEMO-AIC-014 — Girish Mishra,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,SUPPORT_STAFF,
+DEMO-AIC-085,Divya Patel,staff085@aicte-demo.test,AICTE_STAFF,Approval Officer,Regional Office — Southern Region,DEMO-AIC-031 — Deepak Patil,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,SUPPORT_STAFF,
+DEMO-AIC-086,Deepak Saxena,staff086@aicte-demo.test,AICTE_STAFF,Data Entry Operator,Regional Office — Southern Region,DEMO-AIC-015 — Tanvi Bose,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,SUPPORT_STAFF,
+DEMO-AIC-087,Ananya Pillai,staff087@aicte-demo.test,AICTE_STAFF,Data Entry Operator,Regional Office — Eastern Region,DEMO-AIC-032 — Devika Shah,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,SUPPORT_STAFF,
+DEMO-AIC-088,Kirti Shah,staff088@aicte-demo.test,AICTE_STAFF,Approval Officer,Regional Office — Eastern Region,DEMO-AIC-016 — Pranav Dutta,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,SUPPORT_STAFF,
+DEMO-AIC-089,Priya Deshmukh,staff089@aicte-demo.test,AICTE_STAFF,Approval Officer,Regional Office — Central Region,DEMO-AIC-033 — Girish Kulkarni,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,SUPPORT_STAFF,
+DEMO-AIC-090,Yash Chatterjee,staff090@aicte-demo.test,AICTE_STAFF,Data Entry Operator,Regional Office — Central Region,DEMO-AIC-017 — Nikhil Saha,SYNTHETIC_ACTIVE,NOT_REGISTERED,NO,SUPPORT_STAFF,
+DEMO-AIC-091,Amol Iyer,staff091@aicte-demo.test,EXTERNAL_EXPERT,Retired High Court Judge,External Expert Pool (Demo),,SYNTHETIC_EXTERNAL_EXPERT,NOT_REGISTERED,NO,COMMITTEE_MEMBER,SCRUTINY:MEMBER [DEMO-SCRUTINY-POOL-01]; SAC:MEMBER [DEMO-SAC-QUEUE-01]; SCSC:CHAIRPERSON [DEMO-SCSC-QUEUE-01]
+DEMO-AIC-092,Bhavesh Banerjee,staff092@aicte-demo.test,EXTERNAL_EXPERT,Professor (Engineering & Technology),External Expert Pool (Demo),,SYNTHETIC_EXTERNAL_EXPERT,NOT_REGISTERED,NO,COMMITTEE_MEMBER,SCRUTINY:MEMBER [DEMO-SCRUTINY-POOL-01]; SHC:MEMBER [DEMO-SHC-QUEUE-01]; SCSC:MEMBER [DEMO-SCSC-QUEUE-01]
+DEMO-AIC-093,Ananya Borkar,staff093@aicte-demo.test,EXTERNAL_EXPERT,Professor (Civil Engineering),External Expert Pool (Demo),,SYNTHETIC_EXTERNAL_EXPERT,NOT_REGISTERED,NO,COMMITTEE_MEMBER,EVC:MEMBER [DEMO-EVC-POOL-01]; SHC:MEMBER [DEMO-SHC-QUEUE-01]; SCSC:MEMBER [DEMO-SCSC-QUEUE-01]
+DEMO-AIC-094,Deepak Kapoor,staff094@aicte-demo.test,EXTERNAL_EXPERT,Associate Professor (Technical Education),External Expert Pool (Demo),,SYNTHETIC_EXTERNAL_EXPERT,NOT_REGISTERED,NO,COMMITTEE_MEMBER,EVC:MEMBER [DEMO-EVC-POOL-01]
+DEMO-AIC-095,Varun Purohit,staff095@aicte-demo.test,EXTERNAL_EXPERT,Registered Architect,External Expert Pool (Demo),,SYNTHETIC_EXTERNAL_EXPERT,NOT_REGISTERED,NO,COMMITTEE_MEMBER,SHC:MEMBER [DEMO-SHC-QUEUE-01]; SCSC:MEMBER [DEMO-SCSC-QUEUE-01]
+DEMO-AIC-096,Harish Saxena,staff096@aicte-demo.test,EXTERNAL_EXPERT,Director/Registrar of Technical Education,External Expert Pool (Demo),,SYNTHETIC_EXTERNAL_EXPERT,NOT_REGISTERED,NO,COMMITTEE_MEMBER,EVC:MEMBER [DEMO-EVC-POOL-01]; SAC:MEMBER [DEMO-SAC-QUEUE-01]; SCSC:MEMBER [DEMO-SCSC-QUEUE-01]
+DEMO-AIC-097,Anusha Deshmukh,staff097@aicte-demo.test,EXTERNAL_EXPERT,Associate Professor (Management),External Expert Pool (Demo),,SYNTHETIC_EXTERNAL_EXPERT,NOT_REGISTERED,NO,COMMITTEE_MEMBER,SAC:MEMBER [DEMO-SAC-QUEUE-01]
+DEMO-AIC-098,Sameer Bose,staff098@aicte-demo.test,EXTERNAL_EXPERT,Faculty Expert (Computer Science),External Expert Pool (Demo),,SYNTHETIC_EXTERNAL_EXPERT,NOT_REGISTERED,NO,COMMITTEE_MEMBER,SCRUTINY:MEMBER [DEMO-SCRUTINY-POOL-01]
+DEMO-AIC-099,Shreya Jadhav,staff099@aicte-demo.test,EXTERNAL_EXPERT,Professor (Engineering & Technology),External Expert Pool (Demo),,SYNTHETIC_EXTERNAL_EXPERT,NOT_REGISTERED,NO,COMMITTEE_MEMBER,
+DEMO-AIC-100,Smita Bose,staff100@aicte-demo.test,EXTERNAL_EXPERT,Associate Professor (Technical Education),External Expert Pool (Demo),,SYNTHETIC_EXTERNAL_EXPERT,NOT_REGISTERED,NO,COMMITTEE_MEMBER,

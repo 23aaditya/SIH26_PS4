@@ -1,0 +1,616 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Region {
+  id           String        @id
+  code         String        @unique
+  name         String
+  institutions Institution[]
+  applications Application[]
+  users        User[]
+}
+
+model Institution {
+  id              String                @id
+  institutionCode String                @unique
+  institutionName String
+  regionId        String
+  region          Region                @relation(fields: [regionId], references: [id])
+  address         String
+  contactEmail    String
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  users           User[]
+  applications    Application[]
+  documents       ApplicationDocument[]
+  undertakings    Undertaking[]
+}
+
+model User {
+  id            String            @id
+  name          String
+  email         String            @unique
+  passwordHash  String?
+  role          String
+  accountType   String
+  institutionId String?
+  institution   Institution?      @relation(fields: [institutionId], references: [id])
+  regionId      String?
+  region        Region?           @relation(fields: [regionId], references: [id])
+  active        Boolean           @default(true)
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  applications  Application[]     @relation("CreatedApplications")
+  auditEvents   AuditEvent[]
+  notifications Notification[]
+  tasks         WorkflowTask[]
+}
+
+model Application {
+  id                   String                @id @default(cuid())
+  applicationNumber    String                @unique
+  institutionId        String
+  institution          Institution           @relation(fields: [institutionId], references: [id])
+  applicationCategory  String
+  status               String
+  currentStageId       String
+  currentStageName     String
+  currentAssigneeRole  String
+  assignedUserId       String?
+  regionId             String
+  region               Region                @relation(fields: [regionId], references: [id])
+  workflowDefinitionId String?
+  workflowVersion      String                @default("v-2.4")
+  submittedAt          DateTime?
+  stageEnteredAt       DateTime              @default(now())
+  dueAt                DateTime?
+  lastActionAt         DateTime              @default(now())
+  returnCount          Int                   @default(0)
+  requiresEvc          Boolean               @default(false)
+  formDataJson         String?
+  applicationTypeId    String?
+  applicationType      ApplicationType?      @relation(fields: [applicationTypeId], references: [id])
+  createdById          String
+  createdBy            User                  @relation("CreatedApplications", fields: [createdById], references: [id])
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  documents            ApplicationDocument[]
+  fieldValues          ApplicationFieldValue[]
+  auditEvents          AuditEvent[]
+  tasks                WorkflowTask[]
+  deficiencies         DeficiencyRequest[]
+  evcVisits            EVCVisit[]
+  undertakings         Undertaking[]
+  notifications        Notification[]
+  workflowInstance     WorkflowInstance?
+  decision             ApplicationDecision?
+  appeals              Appeal[]
+}
+
+model ApplicationDocument {
+  id                  String                @id @default(cuid())
+  applicationId       String
+  application         Application           @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  institutionId       String
+  institution         Institution           @relation(fields: [institutionId], references: [id])
+  documentType        String
+  originalFilename    String
+  storagePath         String?
+  mimeType            String?
+  fileSize            Int?
+  documentDate        DateTime?
+  expiryDate          DateTime?
+  verificationStatus  String                @default("pending")
+  documentRequirementId String?
+  uploadedById        String
+  uploadedAt          DateTime              @default(now())
+  verifiedById        String?
+  verifiedAt          DateTime?
+  notes               String?
+  undertakingEvidence UndertakingEvidence[]
+}
+
+model WorkflowTask {
+  id              String      @id @default(cuid())
+  applicationId   String
+  application     Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  taskType        String
+  title           String
+  description     String
+  assignedRole    String
+  assignedUserId  String?
+  assignedUser    User?       @relation(fields: [assignedUserId], references: [id])
+  status          String      @default("open")
+  priority        String      @default("normal")
+  createdAt       DateTime    @default(now())
+  dueAt           DateTime?
+  completedAt     DateTime?
+  escalationLevel Int         @default(0)
+  sourceStageId   String
+}
+
+model AuditEvent {
+  id            String       @id @default(cuid())
+  applicationId String?
+  application   Application? @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+  actorUserId   String?
+  actor         User?        @relation(fields: [actorUserId], references: [id])
+  actorRole     String
+  action        String
+  fromStage     String?
+  toStage       String?
+  reason        String?
+  metadataJson  String?
+  createdAt     DateTime     @default(now())
+}
+
+model DeficiencyRequest {
+  id             String      @id @default(cuid())
+  applicationId  String
+  application    Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  raisedById     String
+  deficiencyText String
+  status         String      @default("pending") // pending, resolved
+  dueAt          DateTime
+  createdAt      DateTime    @default(now())
+  respondedAt    DateTime?
+  responseText   String?
+  respondedById  String?
+}
+
+model EVCVisit {
+  id               String      @id @default(cuid())
+  applicationId    String
+  application      Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  regionId         String
+  scheduledAt      DateTime?
+  status           String      @default("pending_scheduling")
+  notes            String?
+  scheduledById    String?
+  completedAt      DateTime?
+  reportDocumentId String?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+  experts          EVCExpert[]
+}
+
+model EVCExpert {
+  id           String   @id @default(cuid())
+  evcVisitId   String
+  evcVisit     EVCVisit @relation(fields: [evcVisitId], references: [id], onDelete: Cascade)
+  name         String
+  designation  String?
+  organisation String?
+}
+
+model Undertaking {
+  id            String                @id @default(cuid())
+  applicationId String
+  application   Application           @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  institutionId String
+  institution   Institution           @relation(fields: [institutionId], references: [id])
+  condition     String
+  description   String?
+  dueAt         DateTime
+  status        String                @default("pending") // pending, submitted, verified, overdue
+  submittedAt   DateTime?
+  verifiedAt    DateTime?
+  verifiedById  String?
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+  evidence      UndertakingEvidence[]
+}
+
+model UndertakingEvidence {
+  id            String              @id @default(cuid())
+  undertakingId String
+  undertaking   Undertaking         @relation(fields: [undertakingId], references: [id], onDelete: Cascade)
+  documentId    String
+  document      ApplicationDocument @relation(fields: [documentId], references: [id])
+  submittedById String
+  createdAt     DateTime            @default(now())
+}
+
+model Notification {
+  id               String       @id @default(cuid())
+  recipientUserId  String
+  recipient        User         @relation(fields: [recipientUserId], references: [id])
+  applicationId    String?
+  application      Application? @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  type             String
+  title            String
+  message          String
+  priority         String       @default("normal")
+  read             Boolean      @default(false)
+  createdAt        DateTime     @default(now())
+  actionUrl        String?
+  deduplicationKey String?      @unique
+}
+
+model WorkflowDefinition {
+  id                  String               @id
+  name                String
+  applicationCategory String
+  active              Boolean              @default(true)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  stages              WorkflowStage[]
+  transitions         WorkflowTransition[]
+}
+
+model WorkflowStage {
+  id                   String             @id @default(cuid())
+  workflowDefinitionId String
+  workflowDefinition   WorkflowDefinition @relation(fields: [workflowDefinitionId], references: [id], onDelete: Cascade)
+  stageKey             String
+  stageName            String
+  sequence             Int
+  responsibleRole      String
+  defaultDeadlineDays  Int?
+  isFinal              Boolean            @default(false)
+  allowsReturn         Boolean            @default(false)
+}
+
+model WorkflowTransition {
+  id                   String             @id @default(cuid())
+  workflowDefinitionId String
+  workflowDefinition   WorkflowDefinition @relation(fields: [workflowDefinitionId], references: [id], onDelete: Cascade)
+  fromStageKey         String
+  outcome              String
+  toStageKey           String
+  conditionJson        String?
+  active               Boolean            @default(true)
+}
+
+model Designation {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  title       String   @unique
+  level       String?
+  description String?
+  staff       Staff[]
+}
+
+model OrganizationUnit {
+  id           String             @id @default(cuid())
+  code         String             @unique
+  name         String             @unique
+  unitType     String?
+  parentUnitId String?
+  parentUnit   OrganizationUnit?  @relation("UnitHierarchy", fields: [parentUnitId], references: [id])
+  childUnits   OrganizationUnit[] @relation("UnitHierarchy")
+  staff        Staff[]
+}
+
+model PlatformRole {
+  id               String                @id @default(cuid())
+  code             String                @unique
+  name             String
+  description      String?
+  staffAssignments StaffRoleAssignment[]
+  permissions      RolePermission[]
+}
+
+model Permission {
+  id                   String                   @id @default(cuid())
+  code                 String                   @unique
+  name                 String
+  category             String
+  description          String?
+  rolePermissions      RolePermission[]
+  committeePermissions CommitteeRolePermission[]
+}
+
+model RolePermission {
+  id           String       @id @default(cuid())
+  roleId       String
+  role         PlatformRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permissionId String
+  permission   Permission   @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+}
+
+model Committee {
+  id              String                    @id @default(cuid())
+  code            String                    @unique
+  name            String
+  committeeType   String?
+  description     String?
+  memberships     CommitteeMembership[]
+  rolePermissions CommitteeRolePermission[]
+  workflowTasks   WorkflowAssignment[]
+}
+
+model CommitteeRolePermission {
+  id            String     @id @default(cuid())
+  committeeId   String
+  committee     Committee  @relation(fields: [committeeId], references: [id], onDelete: Cascade)
+  committeeRole String
+  permissionId  String
+  permission    Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([committeeId, committeeRole, permissionId])
+}
+
+model Staff {
+  id                 String                @id @default(cuid())
+  employeeCode       String                @unique
+  name               String
+  email              String                @unique
+  passwordHash       String
+  accountType        String
+  designationId      String
+  designation        Designation           @relation(fields: [designationId], references: [id])
+  organizationUnitId String?
+  organizationUnit   OrganizationUnit?     @relation(fields: [organizationUnitId], references: [id])
+  reportsToStaffId   String?
+  reportsTo          Staff?                @relation("StaffReporting", fields: [reportsToStaffId], references: [id])
+  directReports      Staff[]               @relation("StaffReporting")
+  employmentStatus   String                @default("SYNTHETIC_ACTIVE")
+  accountStatus      String                @default("ACTIVE_BOOTSTRAP_DEMO")
+  isVerified         Boolean               @default(false)
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+  roleAssignments    StaffRoleAssignment[]
+  committeeMembers   CommitteeMembership[]
+  workflowTasks      WorkflowAssignment[]
+  actionsLogged      StaffAuditLog[]       @relation("ActorStaff")
+  targetAuditLogs    StaffAuditLog[]       @relation("TargetStaff")
+  stageAssignments   WorkflowStageInstance[]
+  reportSubmissions  ReviewReport[]
+  stageHistories     StageActionHistory[]  @relation("ActorStaff")
+  decisions          ApplicationDecision[]
+}
+
+model StaffRoleAssignment {
+  id           String       @id @default(cuid())
+  staffId      String
+  staff        Staff        @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  roleId       String
+  role         PlatformRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  assignedById String?
+  assignedAt   DateTime     @default(now())
+  active       Boolean      @default(true)
+
+  @@unique([staffId, roleId])
+}
+
+model CommitteeMembership {
+  id            String    @id @default(cuid())
+  committeeId   String
+  committee     Committee @relation(fields: [committeeId], references: [id], onDelete: Cascade)
+  staffId       String
+  staff         Staff     @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  committeeRole String
+  docketNumber  String?
+  status        String    @default("ACTIVE")
+  termStart     DateTime?
+  termEnd       DateTime?
+
+  @@unique([committeeId, staffId])
+}
+
+model WorkflowAssignment {
+  id             String     @id @default(cuid())
+  staffId        String
+  staff          Staff      @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  committeeId    String?
+  committee      Committee? @relation(fields: [committeeId], references: [id])
+  applicationId  String?
+  roleInWorkflow String
+  status         String     @default("ASSIGNED")
+  assignedAt     DateTime   @default(now())
+}
+
+model StaffAuditLog {
+  id            String   @id @default(cuid())
+  actorStaffId  String?
+  actorStaff    Staff?   @relation("ActorStaff", fields: [actorStaffId], references: [id])
+  targetStaffId String?
+  targetStaff   Staff?   @relation("TargetStaff", fields: [targetStaffId], references: [id])
+  actionType    String
+  previousValue String?
+  newValue      String?
+  reason        String?
+  timestamp     DateTime @default(now())
+}
+
+model ApplicationType {
+  id                   String                           @id @default(cuid())
+  code                 String                           @unique
+  name                 String
+  category             String
+  description          String?
+  active               Boolean                          @default(true)
+  displayOrder         Int                              @default(0)
+  requiresEvc          Boolean                          @default(false)
+  fieldDefinitions     ApplicationFieldDefinition[]
+  documentRequirements ApplicationDocumentRequirement[]
+  applications         Application[]
+  createdAt            DateTime                         @default(now())
+  updatedAt            DateTime                         @updatedAt
+}
+
+model ApplicationFieldDefinition {
+  id                String          @id @default(cuid())
+  applicationTypeId String
+  applicationType   ApplicationType @relation(fields: [applicationTypeId], references: [id], onDelete: Cascade)
+  fieldKey          String
+  label             String
+  fieldType         String // text, textarea, number, date, dropdown, radio, checkbox, email, phone, percentage, academic_year, boolean
+  placeholder       String?
+  required          Boolean         @default(false)
+  optionsJson       String? // JSON array for dropdown/radio/checkbox options
+  validationRule    String? // e.g. "greater_than:existing_intake" or min/max
+  displayOrder      Int             @default(0)
+  section           String          @default("application_details") // institute_details, application_details, academic_infrastructure, declaration
+  helpText          String?
+  active            Boolean         @default(true)
+}
+
+model DocumentType {
+  id                       String                           @id @default(cuid())
+  code                     String                           @unique
+  name                     String
+  description              String?
+  defaultAllowedExtensions String?                          @default(".pdf,.jpg,.jpeg,.png")
+  defaultMaxSizeMb         Int                              @default(10)
+  requirements             ApplicationDocumentRequirement[]
+}
+
+model ApplicationDocumentRequirement {
+  id                String          @id @default(cuid())
+  applicationTypeId String
+  applicationType   ApplicationType @relation(fields: [applicationTypeId], references: [id], onDelete: Cascade)
+  documentTypeId    String?
+  documentType      DocumentType?   @relation(fields: [documentTypeId], references: [id])
+  documentName      String
+  description       String?
+  required          Boolean         @default(true)
+  allowedExtensions String?         @default(".pdf,.jpg,.jpeg,.png")
+  maxSizeMb         Int             @default(10)
+  displayOrder      Int             @default(0)
+}
+
+model ApplicationFieldValue {
+  id            String      @id @default(cuid())
+  applicationId String
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  fieldKey      String
+  fieldValue    String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@unique([applicationId, fieldKey])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Workflow Execution Models
+// ─────────────────────────────────────────────────────────────────────────────
+
+// One workflow instance per application (idempotent - not re-created on retry)
+model WorkflowInstance {
+  id                  String                  @id @default(cuid())
+  applicationId       String                  @unique
+  application         Application             @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  workflowTemplateKey String                  // e.g. "new_institution", "eoa", "increase_intake"
+  currentStageKey     String
+  overallStatus       String                  @default("IN_PROGRESS")
+  initiatedAt         DateTime                @default(now())
+  completedAt         DateTime?
+  metadataJson        String?
+  stages              WorkflowStageInstance[]
+}
+
+// One stage record per stage that has been (or is being) processed
+model WorkflowStageInstance {
+  id                 String           @id @default(cuid())
+  workflowInstanceId String
+  workflowInstance   WorkflowInstance @relation(fields: [workflowInstanceId], references: [id], onDelete: Cascade)
+  applicationId      String
+  stageKey           String
+  stageName          String
+  stageStatus        String           @default("NOT_STARTED") // NOT_STARTED, ASSIGNED, IN_PROGRESS, DEFICIENCY_RAISED, AWAITING_RESPONSE, PASSED, FAILED, COMPLETED, SKIPPED
+  sequenceOrder      Int
+  assignedCommittee  String?
+  assignedStaffId    String?
+  assignedStaff      Staff?           @relation(fields: [assignedStaffId], references: [id])
+  assignedAt         DateTime?
+  startedAt          DateTime?
+  completedAt        DateTime?
+  dueAt              DateTime?
+  outcome            String?          // PASS, FAIL, DEFICIENCY, RECOMMENDATION_SUBMITTED, SKIPPED
+  reviewerComments   String?
+  findings           String?
+  skipReason         String?
+  reportDocumentId   String?
+  nextStageKey       String?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  reports            ReviewReport[]
+  histories          StageActionHistory[]
+}
+
+// Reviewer-submitted report for a stage (EVC, Scrutiny observation sheet, etc.)
+model ReviewReport {
+  id                    String                @id @default(cuid())
+  workflowStageId       String
+  workflowStage         WorkflowStageInstance @relation(fields: [workflowStageId], references: [id], onDelete: Cascade)
+  applicationId         String
+  reportType            String                // SCRUTINY_REPORT, EVC_REPORT, SHC_FINDINGS, etc.
+  title                 String
+  content               String
+  recommendations       String?
+  outcome               String?               // FAVORABLE, UNFAVORABLE, CONDITIONAL
+  submittedById         String?
+  submittedBy           Staff?                @relation(fields: [submittedById], references: [id])
+  submittedAt           DateTime              @default(now())
+  documentStoragePath   String?
+  metadataJson          String?
+}
+
+// Immutable history of every action taken on a stage
+model StageActionHistory {
+  id              String                @id @default(cuid())
+  stageInstanceId String
+  stageInstance   WorkflowStageInstance @relation(fields: [stageInstanceId], references: [id], onDelete: Cascade)
+  applicationId   String
+  action          String                // STAGE_STARTED, DEFICIENCY_RAISED, RESPONSE_RECEIVED, STAGE_PASSED, STAGE_FAILED, etc.
+  actorStaffId    String?
+  actorStaff      Staff?                @relation("ActorStaff", fields: [actorStaffId], references: [id])
+  actorUserId     String?
+  actorRole       String?
+  previousStatus  String?
+  newStatus       String
+  comments        String?
+  isAutomated     Boolean               @default(false)
+  metadataJson    String?
+  timestamp       DateTime              @default(now())
+}
+
+// Final decision by authorized body (EC, Council, etc.)
+model ApplicationDecision {
+  id                  String      @id @default(cuid())
+  applicationId       String      @unique
+  application         Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  decisionType        String      // APPROVED, REJECTED, CONDITIONAL_APPROVAL, DEFERRED
+  decisionAuthority   String      // EC, COUNCIL, REGIONAL_OFFICER, etc.
+  decisionDate        DateTime
+  outcome             String
+  reasonAndFindings   String
+  conditions          String?     // JSON array of conditions if conditional approval
+  documentLetterType  String?     // LoA, LoD, LoR
+  documentStoragePath String?
+  appealEligible      Boolean     @default(false)
+  appealDeadline      DateTime?
+  decidedById         String?
+  decidedBy           Staff?      @relation(fields: [decidedById], references: [id])
+  createdAt           DateTime    @default(now())
+}
+
+// Appeal record linked to original application
+model Appeal {
+  id                 String      @id @default(cuid())
+  applicationId      String
+  application        Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  originalDecisionId String?
+  appellantId        String?     // Institution user who filed appeal
+  appealType         String      // SAC_APPEAL, COUNCIL_APPEAL
+  groundsText        String
+  status             String      @default("FILED") // FILED, UNDER_REVIEW, HEARING_SCHEDULED, DECIDED, WITHDRAWN
+  filedAt            DateTime    @default(now())
+  hearingDate        DateTime?
+  outcome            String?
+  outcomeRemarks     String?
+  decidedAt          DateTime?
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+}
+
