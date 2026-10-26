@@ -147,3 +147,24 @@ vite.config.ts.timestamp-*
 
 # Turbo Repo
 .turbo
+
+# Environment variables
+.env
+.env.*
+*.env
+backend/.env
+ai-service/.env
+
+# Python / AI Service
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+.pytest_cache/
+ai-service/venv/
+*.sqlite3
+*.db
+agent_jobs.db
+

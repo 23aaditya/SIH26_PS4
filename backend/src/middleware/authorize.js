@@ -71,3 +71,16 @@ export function requirePlatformRole(...allowedRoles) {
     });
   };
 }
+
+/**
+ * Deny automated system service from executing human actions / statutory mutations
+ */
+export function denySystemService(req, res, next) {
+  if (req.user?.accountType === "system_service" || req.isSystemService) {
+    return res.status(403).json({
+      error: "Access denied. Automated services are forbidden from executing regulatory state transitions, document verification, deficiency notices, or final decisions.",
+      code: "MACHINE_MUTATION_FORBIDDEN",
+    });
+  }
+  next();
+}

@@ -1,4 +1,5 @@
-// Dynamic AICTE Application Workflow Verification Test Suite
+import path from "path";
+import fs from "fs";
 
 const BASE_URL = "http://localhost:4000/api";
 
@@ -145,7 +146,25 @@ async function runTests() {
   const boundary = "----WebKitFormBoundary7MA4YWxkTrZu0gW";
   const dummyContent = "PDF-1.4 Mock Regulatory Certificate Content For Testing";
 
+  const appUploadDir = path.resolve(`uploads/applications/${testAppId}`);
+  if (!fs.existsSync(appUploadDir)) fs.mkdirSync(appUploadDir, { recursive: true });
+  const validTestPdf = Buffer.from(
+    "%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n" +
+    "2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n" +
+    "3 0 obj<</Type/Page/MediaBox[0 0 612 792]/Parent 2 0 R/Resources<<\n" +
+    "/Font<</F1<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>>>\n" +
+    ">> /Contents 4 0 R>>endobj\n" +
+    "4 0 obj<</Length 184>>stream\n" +
+    "BT\n/F1 12 Tf\n50 720 Td\n(DEMO REGULATORY DOCUMENT - SYNTHETIC TEST FIXTURE) Tj\n" +
+    "0 -20 Td\n(NOT AN OFFICIAL GOVERNMENT OR STATUTORY CERTIFICATE) Tj\n" +
+    "0 -20 Td\n(AICTE Approval Process Handbook Testing Sample) Tj\nET\n" +
+    "endstream\nendobj\n" +
+    "xref\n0 5\n0000000000 65535 f\n0000000009 00000 n\n0000000057 00000 n\n0000000115 00000 n\n0000000244 00000 n\n" +
+    "trailer<</Size 5/Root 1 0 R>>\nstartxref\n479\n%%EOF\n"
+  );
+
   const reqDoc = formDataConfig.documentRequirements[0];
+  fs.writeFileSync(path.join(appUploadDir, "GB_Res_2026.pdf"), validTestPdf);
   const uploadRes = await fetch(`${BASE_URL}/applications/${testAppId}/documents`, {
     method: "POST",
     headers: {
@@ -170,6 +189,8 @@ async function runTests() {
   for (let i = 1; i < formDataConfig.documentRequirements.length; i++) {
     const d = formDataConfig.documentRequirements[i];
     if (d.required) {
+      const docFname = `${d.documentName.replace(/\s+/g, "_")}.pdf`;
+      fs.writeFileSync(path.join(appUploadDir, docFname), validTestPdf);
       await fetch(`${BASE_URL}/applications/${testAppId}/documents`, {
         method: "POST",
         headers: {
@@ -180,8 +201,8 @@ async function runTests() {
         body: JSON.stringify({
           documentRequirementId: d.id,
           documentType: d.documentName,
-          originalFilename: `${d.documentName.replace(/\s+/g, "_")}.pdf`,
-          storagePath: `uploads/applications/${testAppId}/${d.documentName.replace(/\s+/g, "_")}.pdf`,
+          originalFilename: docFname,
+          storagePath: `uploads/applications/${testAppId}/${docFname}`,
           mimeType: "application/pdf",
           fileSize: 1024 * 250,
         }),

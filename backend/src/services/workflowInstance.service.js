@@ -383,35 +383,70 @@ export const workflowInstanceService = {
       throw Object.assign(new Error("Stage not found"), { status: 404 });
     }
 
-    const report = await prisma.reviewReport.create({
-      data: {
-        workflowStageId: stageInstanceId,
-        applicationId,
-        reportType: reportData.reportType || "SCRUTINY_REPORT",
-        title: reportData.title,
-        content: reportData.content,
-        recommendations: reportData.recommendations || null,
-        outcome: reportData.outcome || null,
-        submittedById: actor?.staffId || null,
-        metadataJson: reportData.metadata ? JSON.stringify(reportData.metadata) : null,
-      },
-    });
+    const versionHash = reportData.metadata?.versionHash || reportData.versionHash || null;
+    const reportType = reportData.reportType || "SCRUTINY_REPORT";
 
-    await prisma.stageActionHistory.create({
-      data: {
-        stageInstanceId,
-        applicationId,
-        action: "REPORT_SUBMITTED",
-        actorStaffId: actor?.staffId || null,
-        actorUserId: actor?.id || null,
-        actorRole: actor?.role || "aicte",
-        previousStatus: stage.stageStatus,
-        newStatus: stage.stageStatus,
-        comments: `Report submitted: ${reportData.title}`,
-      },
-    });
+    return await prisma.$transaction(async (tx) => {
+      // 1. Check for existing report matching identical application and versionHash
+      if (reportType === "AI_SCRUTINY_PRE_CHECK" && versionHash) {
+        const existing = await tx.reviewReport.findFirst({
+          where: {
+            applicationId,
+            reportType: "AI_SCRUTINY_PRE_CHECK",
+            versionHash,
+          },
+        });
+        if (existing) {
+          return existing;
+        }
+      }
 
-    return report;
+      try {
+        const report = await tx.reviewReport.create({
+          data: {
+            workflowStageId: stageInstanceId,
+            applicationId,
+            reportType,
+            title: reportData.title,
+            content: reportData.content,
+            recommendations: reportData.recommendations || null,
+            outcome: reportData.outcome || null,
+            submittedById: actor?.staffId || null,
+            metadataJson: reportData.metadata ? JSON.stringify(reportData.metadata) : null,
+            versionHash,
+          },
+        });
+
+        await tx.stageActionHistory.create({
+          data: {
+            stageInstanceId,
+            applicationId,
+            action: "REPORT_SUBMITTED",
+            actorStaffId: actor?.staffId || null,
+            actorUserId: actor?.id || null,
+            actorRole: actor?.role || "aicte",
+            previousStatus: stage.stageStatus,
+            newStatus: stage.stageStatus,
+            comments: `Report submitted: ${reportData.title}`,
+          },
+        });
+
+        return report;
+      } catch (err) {
+        // Concurrency conflict: If a simultaneous request won the race on the partial unique index
+        if (err.code === "P2002" || err.message?.includes("UNIQUE constraint failed")) {
+          const raceWinner = await tx.reviewReport.findFirst({
+            where: {
+              applicationId,
+              reportType: "AI_SCRUTINY_PRE_CHECK",
+              versionHash,
+            },
+          });
+          if (raceWinner) return raceWinner;
+        }
+        throw err;
+      }
+    });
   },
 
   /**

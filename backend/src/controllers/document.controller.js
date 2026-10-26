@@ -1,5 +1,6 @@
 import path from "path";
 import fs from "fs";
+import crypto from "crypto";
 import prisma from "../db/prisma.js";
 
 export const documentController = {
@@ -62,6 +63,22 @@ export const documentController = {
       const originalFilename = file ? file.originalname : req.body.originalFilename || "uploaded_document.pdf";
       const storagePath = file ? path.relative(process.cwd(), file.path) : req.body.storagePath || `uploads/${originalFilename}`;
 
+      let checksum = req.body.checksum || null;
+      if (!checksum) {
+        if (file?.path && fs.existsSync(file.path)) {
+          const buf = fs.readFileSync(file.path);
+          checksum = crypto.createHash("sha256").update(buf).digest("hex");
+        } else if (file?.buffer) {
+          checksum = crypto.createHash("sha256").update(file.buffer).digest("hex");
+        } else if (storagePath) {
+          const fullPath = path.resolve(storagePath);
+          if (fs.existsSync(fullPath)) {
+            const buf = fs.readFileSync(fullPath);
+            checksum = crypto.createHash("sha256").update(buf).digest("hex");
+          }
+        }
+      }
+
       const created = await prisma.applicationDocument.create({
         data: {
           applicationId,
@@ -69,6 +86,7 @@ export const documentController = {
           documentType,
           originalFilename,
           storagePath,
+          checksum,
           mimeType: file?.mimetype || "application/pdf",
           fileSize: file?.size || 1024 * 100,
           documentDate: documentDate ? new Date(documentDate) : undefined,
@@ -108,19 +126,69 @@ export const documentController = {
         return;
       }
 
-      // Check if physical file exists on disk
-      if (doc.storagePath) {
-        const fullPath = path.resolve(doc.storagePath);
-        if (fs.existsSync(fullPath)) {
-          res.download(fullPath, doc.originalFilename);
+      // Least-privilege constraint for system_service:
+      // Can ONLY download documents belonging to applications actively undergoing scrutiny
+      if (req.user?.accountType === "system_service") {
+        const parentApp = doc.application;
+        const allowedStatuses = ["in_review"];
+        const allowedStages = ["scrutiny", "re_scrutiny"];
+
+        if (!parentApp || !allowedStatuses.includes(parentApp.status) || !allowedStages.includes(parentApp.currentStageId)) {
+          res.status(403).json({
+            error: `Access denied. AI scrutiny service can only download documents for applications actively undergoing scrutiny. Current application status: '${parentApp?.status}', stage: '${parentApp?.currentStageId}'.`,
+            code: "INELIGIBLE_DOCUMENT_FOR_AI_SCRUTINY",
+            applicationStatus: parentApp?.status,
+            applicationStageId: parentApp?.currentStageId,
+          });
           return;
         }
       }
 
-      // If simulated or demo seed document, serve placeholder text representation
-      res.setHeader("Content-Disposition", `attachment; filename="${doc.originalFilename}"`);
-      res.setHeader("Content-Type", doc.mimeType || "application/pdf");
-      res.send(`Official AICTE Regulatory Document Verification Copy\n\nDocument ID: ${doc.id}\nType: ${doc.documentType}\nOriginal Filename: ${doc.originalFilename}\nUploaded By: ${doc.uploadedById}\nVerification Status: ${doc.verificationStatus}`);
+      // Check if physical file exists on disk
+      if (doc.storagePath) {
+        const fullPath = path.resolve(doc.storagePath);
+        if (fs.existsSync(fullPath)) {
+          // Validate PDF signature using actual bytes
+          let fd;
+          try {
+            fd = fs.openSync(fullPath, "r");
+            const magicBuf = Buffer.alloc(5);
+            fs.readSync(fd, magicBuf, 0, 5, 0);
+            if (magicBuf.toString("ascii") !== "%PDF-") {
+              return res.status(422).json({
+                error: `Corrupted file payload: '${doc.originalFilename}' is not a valid PDF file.`,
+                code: "MALFORMED_PDF_FILE",
+                documentId: doc.id,
+              });
+            }
+          } finally {
+            if (fd !== undefined) fs.closeSync(fd);
+          }
+
+          const stat = fs.statSync(fullPath);
+          const isAttachment = req.query.download === "true" || req.query.download === "1";
+          const disposition = isAttachment ? "attachment" : "inline";
+
+          res.setHeader("Content-Type", "application/pdf");
+          res.setHeader("Content-Length", stat.size);
+          res.setHeader(
+            "Content-Disposition",
+            `${disposition}; filename="${encodeURIComponent(doc.originalFilename)}"`
+          );
+
+          const stream = fs.createReadStream(fullPath);
+          return stream.pipe(res);
+        }
+      }
+
+      // If physical file does not exist on disk, return 404 error
+      res.status(404).json({
+        error: `Document file payload unavailable on server storage. The physical file for '${doc.originalFilename}' could not be found.`,
+        code: "DOCUMENT_FILE_NOT_FOUND",
+        documentId: doc.id,
+        filename: doc.originalFilename,
+      });
+      return;
     } catch (error) {
       next(error);
     }

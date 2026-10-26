@@ -1,5 +1,6 @@
 import path from "path";
 import fs from "fs";
+import crypto from "crypto";
 import prisma from "../db/prisma.js";
 import { applicationService } from "../services/application.service.js";
 
@@ -174,6 +175,21 @@ export const applicationController = {
         return;
       }
 
+      // Least-privilege constraint for system_service:
+      if (req.user?.accountType === "system_service") {
+        const allowedStatuses = ["in_review"];
+        const allowedStages = ["scrutiny", "re_scrutiny"];
+
+        if (!allowedStatuses.includes(application.status) || !allowedStages.includes(application.currentStageId)) {
+          return res.status(403).json({
+            error: `Access denied. AI scrutiny service can only access applications actively undergoing scrutiny. Current status: '${application.status}', stage: '${application.currentStageId}'.`,
+            code: "INELIGIBLE_APPLICATION_FOR_AI_SCRUTINY",
+            currentStatus: application.status,
+            currentStageId: application.currentStageId,
+          });
+        }
+      }
+
       res.json({
         ...application,
         formData: application.formDataJson ? JSON.parse(application.formDataJson) : {},
@@ -259,6 +275,22 @@ export const applicationController = {
       const originalFilename = file ? file.originalname : req.body.originalFilename || "document.pdf";
       const storagePath = file ? path.relative(process.cwd(), file.path) : req.body.storagePath || `uploads/${originalFilename}`;
 
+      let checksum = req.body.checksum || null;
+      if (!checksum) {
+        if (file?.path && fs.existsSync(file.path)) {
+          const buf = fs.readFileSync(file.path);
+          checksum = crypto.createHash("sha256").update(buf).digest("hex");
+        } else if (file?.buffer) {
+          checksum = crypto.createHash("sha256").update(file.buffer).digest("hex");
+        } else if (storagePath) {
+          const fullPath = path.resolve(storagePath);
+          if (fs.existsSync(fullPath)) {
+            const buf = fs.readFileSync(fullPath);
+            checksum = crypto.createHash("sha256").update(buf).digest("hex");
+          }
+        }
+      }
+
       const created = await prisma.applicationDocument.create({
         data: {
           applicationId,
@@ -267,6 +299,7 @@ export const applicationController = {
           documentType: documentType || "Supporting Document",
           originalFilename,
           storagePath,
+          checksum,
           mimeType: file?.mimetype || "application/pdf",
           fileSize: file?.size || 1024 * 100,
           uploadedById: req.user.id || req.user.employeeCode || "inst-user-1",

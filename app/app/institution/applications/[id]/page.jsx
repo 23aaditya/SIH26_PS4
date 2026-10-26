@@ -195,11 +195,32 @@ function ApplicationDetailContent() {
     }
   };
 
-  const handleDownloadDoc = (doc) => {
-    if (doc.id) {
-      window.open(`${API_BASE}/documents/${doc.id}/download`, "_blank");
-    } else {
+  const handleDownloadDoc = async (doc) => {
+    if (!doc.id) {
       alert(`Viewing local document reference: ${doc.originalFilename}`);
+      return;
+    }
+    try {
+      const authUid = userProfile?.uid || userProfile?.email || "principal@pict.edu";
+      const res = await fetch(`${API_BASE}/documents/${doc.id}/download?inline=true&token=${encodeURIComponent(authUid)}`, {
+        headers: {
+          "x-user-id": authUid,
+        },
+        credentials: "include",
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || `Document file payload unavailable on server storage (HTTP ${res.status}).`);
+        return;
+      }
+
+      const rawBlob = await res.blob();
+      const pdfBlob = new Blob([rawBlob], { type: "application/pdf" });
+      const url = window.URL.createObjectURL(pdfBlob);
+      window.open(url, "_blank");
+    } catch (err) {
+      alert(`Could not fetch document: ${err.message}`);
     }
   };
 

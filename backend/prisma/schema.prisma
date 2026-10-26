@@ -110,6 +110,8 @@ model ApplicationDocument {
   documentRequirementId String?
   uploadedById        String
   uploadedAt          DateTime              @default(now())
+  updatedAt           DateTime              @default(now()) @updatedAt
+  checksum            String?
   verifiedById        String?
   verifiedAt          DateTime?
   notes               String?
@@ -554,6 +556,9 @@ model ReviewReport {
   submittedAt           DateTime              @default(now())
   documentStoragePath   String?
   metadataJson          String?
+  versionHash           String?
+
+  @@index([applicationId, reportType, versionHash])
 }
 
 // Immutable history of every action taken on a stage

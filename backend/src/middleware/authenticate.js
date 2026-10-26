@@ -11,9 +11,47 @@ export async function authenticate(req, res, next) {
     const bearerUid = authHeader?.startsWith("Bearer ") ? authHeader.substring(7) : undefined;
     const activeWorkspace = req.headers["x-committee-workspace"] || req.query?.committeeWorkspace;
 
-    const targetUid = headerUid || cookieUid || bearerUid;
+    const queryUid = req.query?.token || req.query?.uid;
+    const targetUid = headerUid || cookieUid || bearerUid || queryUid;
+
+    // 0. Dedicated Machine-to-Machine Authentication for AI Service
+    // Checks X-Service-Authorization header strictly against AI_BACKEND_SECRET
+    const serviceAuthHeader = req.headers["x-service-authorization"];
+    const configuredSecret = process.env.AI_BACKEND_SECRET;
+
+    if (serviceAuthHeader && configuredSecret) {
+      const token = serviceAuthHeader.startsWith("Bearer ")
+        ? serviceAuthHeader.substring(7).trim()
+        : serviceAuthHeader.trim();
+
+      if (token === configuredSecret) {
+        // Enforce dedicated system identity; human identity headers cannot override this
+        req.user = {
+          id: "SERVICE_AI_SCRUTINY",
+          name: "AI Scrutiny Pre-Check Engine",
+          role: "ai_service",
+          accountType: "system_service",
+          permissions: ["READ_APPLICATION_DOSSIER", "SUBMIT_AI_REPORT"],
+        };
+        req.isSystemService = true;
+        return next();
+      } else {
+        return res.status(401).json({
+          error: "Invalid AI service authorization credentials.",
+          code: "INVALID_SERVICE_CREDENTIALS",
+        });
+      }
+    }
 
     if (targetUid) {
+      // Reject spoofed attempts to claim machine service via human headers
+      if (targetUid === "SERVICE_AI_SCRUTINY") {
+        return res.status(401).json({
+          error: "Machine service identity cannot be claimed via user headers.",
+          code: "INVALID_CREDENTIALS",
+        });
+      }
+
       // 1. First check if it's an AICTE Staff member (by ID, employeeCode, or email)
       const staffAuth = await staffAuthService.resolveStaffAuthority(targetUid, activeWorkspace);
       if (staffAuth) {
@@ -62,9 +100,12 @@ export async function authenticate(req, res, next) {
       }
     }
 
-    // Default to demo persona in local hackathon mode if none provided
-    // but only when hitting non-auth endpoints
-    if (!req.path.includes("/auth/")) {
+    // Default to demo persona ONLY if explicitly enabled via development flag
+    if (
+      process.env.NODE_ENV === "development" &&
+      process.env.ENABLE_DEV_AUTH_BYPASS === "true" &&
+      !req.path.includes("/auth/")
+    ) {
       const defaultUser = await prisma.user.findUnique({
         where: { id: "inst-user-1" },
         include: { institution: true },

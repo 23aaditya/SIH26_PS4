@@ -277,6 +277,10 @@ async function main() {
   const { seedApplicationTypes } = await import("./seedApplicationTypes.js");
   await seedApplicationTypes();
 
+  // Ensure partial unique indexes for Express backend
+  const { ensureDatabaseIndexes } = await import("../src/db/ensureIndexes.js");
+  await ensureDatabaseIndexes(prisma);
+
   console.log("Database seeded successfully with statutory AICTE records!");
 }
 

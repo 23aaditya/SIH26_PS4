@@ -54,8 +54,20 @@ const APPLICATION_INCLUDES = {
   appeals: true,
 };
 
-function formatApp(app) {
-  return { ...app, formData: app.formDataJson ? JSON.parse(app.formDataJson) : {} };
+function formatApp(app, isSystemService = false) {
+  const documents = (app.documents || []).map((doc) => {
+    if (isSystemService) {
+      // Expose verified checksum, strip internal filesystem storagePath
+      const { storagePath, ...safeDoc } = doc;
+      return safeDoc;
+    }
+    return doc;
+  });
+  return {
+    ...app,
+    documents,
+    formData: app.formDataJson ? JSON.parse(app.formDataJson) : {},
+  };
 }
 
 export const aicteController = {
@@ -182,7 +194,240 @@ export const aicteController = {
 
       if (!app) return res.status(404).json({ error: "Application not found." });
 
-      res.json(formatApp(app));
+      // F-01: Least-privilege constraint for automated system_service:
+      // Can ONLY retrieve applications that are actively in scrutiny stage (status: in_review, currentStageId: scrutiny)
+      if (req.user?.accountType === "system_service") {
+        const allowedStatuses = ["in_review"];
+        const allowedStages = ["scrutiny", "re_scrutiny"];
+
+        if (!allowedStatuses.includes(app.status) || !allowedStages.includes(app.currentStageId)) {
+          return res.status(403).json({
+            error: `Access denied. AI scrutiny service can only access applications actively undergoing scrutiny. Current status: '${app.status}', stage: '${app.currentStageId}'.`,
+            code: "INELIGIBLE_APPLICATION_FOR_AI_SCRUTINY",
+            currentStatus: app.status,
+            currentStageId: app.currentStageId,
+          });
+        }
+      }
+
+      const isSystemService = req.user?.accountType === "system_service";
+      res.json(formatApp(app, isSystemService));
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  // ─── GET /api/aicte/dashboard/metrics ────────────────────────────────────
+  async getDashboardMetrics(req, res, next) {
+    try {
+      if (!req.user || req.user.accountType === "institution") {
+        return res.status(403).json({ error: "Access denied. AICTE officer login required." });
+      }
+
+      const now = new Date();
+      const [
+        totalActive,
+        inScrutiny,
+        awaitingInstitution,
+        pendingEvc,
+        awaitingCommittee,
+        approvedCount,
+        rejectedCount,
+        overdueCount,
+        evcVisitsCount,
+        recentApplications,
+        regions,
+      ] = await Promise.all([
+        prisma.application.count({
+          where: { status: { notIn: ["approved", "rejected", "closed", "withdrawn"] } },
+        }),
+        prisma.application.count({
+          where: { currentStageId: { in: ["scrutiny", "re_scrutiny"] } },
+        }),
+        prisma.application.count({
+          where: { status: "awaiting_institution" },
+        }),
+        prisma.application.count({
+          where: { status: "pending_evc" },
+        }),
+        prisma.application.count({
+          where: { status: "awaiting_committee" },
+        }),
+        prisma.application.count({
+          where: { status: "approved" },
+        }),
+        prisma.application.count({
+          where: { status: "rejected" },
+        }),
+        prisma.application.count({
+          where: {
+            dueAt: { lt: now },
+            status: { notIn: ["approved", "rejected", "closed", "withdrawn"] },
+          },
+        }),
+        prisma.eVCVisit.count(),
+        prisma.application.findMany({
+          take: 10,
+          orderBy: { updatedAt: "desc" },
+          include: {
+            institution: { select: { id: true, institutionName: true, institutionCode: true } },
+            region: { select: { id: true, name: true, code: true } },
+            documents: { select: { id: true, verificationStatus: true } },
+          },
+        }),
+        prisma.region.findMany({
+          include: {
+            applications: {
+              select: { id: true, status: true, currentStageId: true, dueAt: true },
+            },
+          },
+        }),
+      ]);
+
+      // Calculate Regional Pendency Matrix
+      const regionalMatrix = regions.map((r) => {
+        const apps = r.applications || [];
+        const active = apps.filter((a) => !["approved", "rejected", "closed", "withdrawn"].includes(a.status)).length;
+        const scrutiny = apps.filter((a) => ["scrutiny", "re_scrutiny"].includes(a.currentStageId)).length;
+        const evc = apps.filter((a) => a.status === "pending_evc" || a.currentStageId === "evc").length;
+        const overdue = apps.filter((a) => a.dueAt && new Date(a.dueAt) < now && !["approved", "rejected", "closed", "withdrawn"].includes(a.status)).length;
+        return {
+          regionId: r.id,
+          region: r.name,
+          code: r.code,
+          active,
+          scrutiny,
+          evc,
+          overdue,
+        };
+      });
+
+      // Role specific tasks and assignments based on authenticated user
+      const userRole = req.user.role;
+      const platformRoles = req.user.platformRoles || [];
+      const employeeCode = req.user.employeeCode || req.user.id;
+      const permissions = req.user.permissions || [];
+      const modules = req.user.dashboardModules || [];
+
+      // Determine permitted actions and tailored queue
+      let roleSpecificQueue = [];
+      let pendingTasksCount = 0;
+
+      const isScrutinyAuthorized = permissions.includes("CONDUCT_SCRUTINY") || userRole === "scrutiny_committee" || platformRoles.includes("SCRUTINY_OFFICER") || employeeCode === "DEMO-AIC-034";
+      const isEvcAuthorized = permissions.includes("SCHEDULE_EVC") || permissions.includes("CONDUCT_EVC") || userRole === "evc_coordinator" || platformRoles.includes("EVC_COORDINATOR") || employeeCode === "DEMO-AIC-037";
+      const isHearingAuthorized = permissions.includes("CONDUCT_SHC") || permissions.includes("CONDUCT_SAC") || userRole === "competent_authority" || platformRoles.includes("COMPETENT_AUTHORITY") || employeeCode === "DEMO-AIC-013";
+      const isSuperAdminAuthorized = platformRoles.includes("SUPER_ADMIN") || permissions.includes("MANAGE_STAFF_ROLES") || userRole === "super_admin" || userRole === "admin" || employeeCode === "DEMO-AIC-001";
+
+      if (isScrutinyAuthorized && !isSuperAdminAuthorized) {
+        roleSpecificQueue = await prisma.application.findMany({
+          where: {
+            OR: [
+              { currentStageId: { in: ["scrutiny", "re_scrutiny"] } },
+              { assignedUserId: employeeCode },
+            ],
+          },
+          take: 15,
+          orderBy: { updatedAt: "desc" },
+          include: {
+            institution: true,
+            documents: true,
+          },
+        });
+        pendingTasksCount = inScrutiny;
+      } else if (isEvcAuthorized && !isSuperAdminAuthorized) {
+        roleSpecificQueue = await prisma.application.findMany({
+          where: {
+            OR: [
+              { status: "pending_evc" },
+              { currentStageId: "evc" },
+              { assignedUserId: employeeCode },
+            ],
+          },
+          take: 15,
+          orderBy: { updatedAt: "desc" },
+          include: {
+            institution: true,
+            evcVisits: true,
+          },
+        });
+        pendingTasksCount = pendingEvc;
+      } else if (isHearingAuthorized && !isSuperAdminAuthorized) {
+        roleSpecificQueue = await prisma.application.findMany({
+          where: {
+            OR: [
+              { status: "awaiting_committee" },
+              { currentStageId: "committee" },
+              { currentStageId: "decision" },
+              { status: "decision_pending" },
+            ],
+          },
+          take: 15,
+          orderBy: { updatedAt: "desc" },
+          include: {
+            institution: true,
+            decision: true,
+          },
+        });
+        pendingTasksCount = awaitingCommittee;
+      } else {
+        // Super Admin or general officer: full view
+        roleSpecificQueue = recentApplications;
+        pendingTasksCount = totalActive;
+      }
+
+      res.json({
+        kpis: {
+          totalActive,
+          inScrutiny,
+          awaitingInstitution,
+          pendingEvc,
+          awaitingCommittee,
+          approvedCount,
+          rejectedCount,
+          overdueCount,
+          evcVisitsCount,
+        },
+        stageDistribution: [
+          { stage: "Scrutiny", count: inScrutiny, fill: "#3b82f6" },
+          { stage: "Clarification", count: awaitingInstitution, fill: "#f59e0b" },
+          { stage: "EVC Visit", count: pendingEvc, fill: "#8b5cf6" },
+          { stage: "Committee", count: awaitingCommittee, fill: "#6366f1" },
+          { stage: "Approved", count: approvedCount, fill: "#10b981" },
+        ],
+        summary: {
+          total: totalActive,
+          inReview: inScrutiny,
+          pendingScrutiny: inScrutiny,
+          awaitingInstitution,
+          pendingEvc,
+          committeeReview: awaitingCommittee,
+          approved: approvedCount,
+          rejected: rejectedCount,
+          overdue: overdueCount,
+        },
+        byStage: [
+          { stageId: "scrutiny", count: inScrutiny },
+          { stageId: "awaiting_institution", count: awaitingInstitution },
+          { stageId: "pending_evc", count: pendingEvc },
+          { stageId: "awaiting_committee", count: awaitingCommittee },
+        ],
+        byRegion: regionalMatrix.map((r) => ({ regionId: r.regionId, count: r.active })),
+        regionalMatrix,
+        roleSpecificQueue: roleSpecificQueue.map((a) => formatApp(a, false)),
+        pendingTasksCount,
+        authenticatedUser: {
+          id: req.user.id,
+          employeeCode,
+          role: userRole,
+          platformRoles,
+          permissions,
+          dashboardModules: modules,
+          isScrutinyAuthorized,
+          isEvcAuthorized,
+          isHearingAuthorized,
+          isSuperAdminAuthorized,
+        },
+      });
     } catch (err) {
       next(err);
     }
@@ -703,6 +948,16 @@ export const aicteController = {
       if (!req.user || req.user.accountType === "institution") {
         return res.status(403).json({ error: "Access denied." });
       }
+
+      // Least-privilege constraint for automated system service:
+      // Can only submit AI_SCRUTINY_PRE_CHECK reports.
+      if (req.user.accountType === "system_service" && req.body.reportType !== "AI_SCRUTINY_PRE_CHECK") {
+        return res.status(403).json({
+          error: "System service is restricted to submitting 'AI_SCRUTINY_PRE_CHECK' reports only.",
+          code: "FORBIDDEN_REPORT_TYPE",
+        });
+      }
+
       const { id } = req.params;
       const { stageInstanceId, stageId, stageKey, reportType, title, content, recommendations, outcome, metadata } = req.body;
 
@@ -784,65 +1039,6 @@ export const aicteController = {
       });
 
       res.status(201).json({ success: true, appeal });
-    } catch (err) {
-      next(err);
-    }
-  },
-
-  // ─── GET /api/aicte/dashboard/metrics ─────────────────────────────────────
-  async getDashboardMetrics(req, res, next) {
-    try {
-      if (!req.user || req.user.accountType === "institution") {
-        return res.status(403).json({ error: "Access denied." });
-      }
-
-      const now = new Date();
-
-      const [
-        total, inReview, pendingScrutiny, awaitingInstitution, pendingEvc,
-        committeeReview, approved, rejected, overdue, byStage, byRegion,
-        recentAuditEvents,
-      ] = await Promise.all([
-        prisma.application.count({ where: { status: { notIn: ["draft"] } } }),
-        prisma.application.count({ where: { status: "in_review" } }),
-        prisma.application.count({ where: { currentStageId: "scrutiny" } }),
-        prisma.application.count({ where: { status: "awaiting_institution" } }),
-        prisma.application.count({ where: { status: "pending_evc" } }),
-        prisma.application.count({ where: { currentStageId: { in: ["committee", "decision"] } } }),
-        prisma.application.count({ where: { status: "approved" } }),
-        prisma.application.count({ where: { status: "rejected" } }),
-        prisma.application.count({
-          where: { dueAt: { lt: now }, status: { notIn: ["approved", "rejected", "closed", "draft"] } },
-        }),
-        prisma.application.groupBy({
-          by: ["currentStageId", "currentStageName"],
-          where: { status: { notIn: ["approved", "rejected", "closed", "draft"] } },
-          _count: { id: true },
-        }),
-        prisma.application.groupBy({
-          by: ["regionId"],
-          where: { status: { notIn: ["draft"] } },
-          _count: { id: true },
-        }),
-        prisma.auditEvent.findMany({
-          orderBy: { createdAt: "desc" },
-          take: 10,
-          include: {
-            actor: { select: { name: true, role: true } },
-            application: { select: { applicationNumber: true } },
-          },
-        }),
-      ]);
-
-      res.json({
-        summary: {
-          total, inReview, pendingScrutiny, awaitingInstitution, pendingEvc,
-          committeeReview, approved, rejected, overdue,
-        },
-        byStage: byStage.map(s => ({ stageId: s.currentStageId, stageName: s.currentStageName, count: s._count.id })),
-        byRegion: byRegion.map(r => ({ regionId: r.regionId, count: r._count.id })),
-        recentActivity: recentAuditEvents,
-      });
     } catch (err) {
       next(err);
     }

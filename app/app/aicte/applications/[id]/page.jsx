@@ -14,7 +14,88 @@ import { WorkflowStepper, AuditTimeline } from "@/components/shared/WorkflowTime
 import { Dialog } from "@/components/ui/dialog";
 import { dataService } from "@/lib/dataService";
 import { APPLICATION_CATEGORY_LABELS, ROLE_LABELS, } from "@/lib/types";
-import { FileText, Building2, CheckCircle2, ArrowLeft, ShieldCheck, Eye, UserCheck, Calendar, RotateCcw, Check, } from "lucide-react";
+import { FileText, Building2, CheckCircle2, ArrowLeft, ShieldCheck, Eye, UserCheck, Calendar, RotateCcw, Check, Sparkles, Bot, RefreshCw, AlertTriangle, AlertCircle } from "lucide-react";
+
+function AiExecutiveSummary({ content, outcome, versionHash }) {
+  if (!content) return null;
+
+  // Extract statutory notice, headline, and findings lines cleanly
+  const lines = content.split("\n");
+  let headline = "";
+  let notice = "";
+  let inNotice = false;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("**Headline:**")) {
+      headline = trimmed.replace("**Headline:**", "").trim();
+    } else if (trimmed.includes("[!NOTE]")) {
+      inNotice = true;
+    } else if (inNotice) {
+      if (trimmed.startsWith(">")) {
+        const cleanNotice = trimmed.replace(/^>\s*/, "").replace(/^\*\*Statutory Notice\*\*:\s*/i, "").trim();
+        if (cleanNotice) notice += (notice ? " " : "") + cleanNotice;
+      } else if (trimmed === "") {
+        // empty line inside notice block
+      } else {
+        inNotice = false;
+      }
+    }
+  }
+
+  if (!headline) {
+    headline = outcome === "RECOMMEND_ACCEPT"
+      ? "All Statutory Pre-Checks Compliant"
+      : outcome === "DEFICIENCY_SUGGESTED"
+      ? "Deficiencies Identified in Self-Disclosure Documents"
+      : "Pre-Check Completed: Human Officer Verification Required";
+  }
+
+  if (!notice) {
+    notice = "This report was generated automatically by the AI Scrutiny Assistant based on AICTE Approval Process Handbook (APH 2024-27). All findings are purely advisory and strictly require human evaluation by the designated AICTE Scrutiny Committee. The AI service does not issue formal deficiencies or alter application status.";
+  }
+
+  return (
+    <div className={`p-4 rounded-xl border space-y-3 ${
+      outcome === "RECOMMEND_ACCEPT"
+        ? "bg-emerald-50/60 border-emerald-200 text-emerald-950"
+        : outcome === "DEFICIENCY_SUGGESTED"
+        ? "bg-amber-50/60 border-amber-200 text-amber-950"
+        : "bg-blue-50/60 border-blue-200 text-blue-950"
+    }`}>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-current/10 pb-2.5">
+        <div className="flex items-center gap-2">
+          <ShieldCheck className="h-4 w-4 shrink-0 text-current" />
+          <span className="font-bold text-xs uppercase tracking-wide">
+            Pre-Check Recommendation: {outcome}
+          </span>
+        </div>
+        <div className="flex items-center gap-2 text-[10px] opacity-75 font-mono">
+          <span>Integrity Hash:</span>
+          <span className="bg-white/80 px-1.5 py-0.5 rounded border border-current/10">
+            {versionHash ? versionHash.substring(0, 12) + "..." : "authoritative"}
+          </span>
+        </div>
+      </div>
+
+      <div>
+        <p className="text-xs font-semibold text-slate-900">
+          {headline}
+        </p>
+      </div>
+
+      <div className="bg-white/85 rounded-lg p-3 border border-current/15 text-[11px] leading-relaxed text-slate-700">
+        <div className="flex items-start gap-2">
+          <span className="font-bold text-slate-900 shrink-0 uppercase tracking-wider text-[10px] bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+            Statutory Notice
+          </span>
+          <p>{notice}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const AICTE_ROLES = [
     "regional_officer",
     "bureau_officer",
@@ -47,6 +128,8 @@ function CaseReviewContent() {
     const [decisionType, setDecisionType] = useState("approved");
     const [decisionReason, setDecisionReason] = useState("");
     const [decisionConditions, setDecisionConditions] = useState("");
+    const [reports, setReports] = useState([]);
+    const [triggeringAi, setTriggeringAi] = useState(false);
     const [selectedRole, setSelectedRole] = useState("scrutiny_committee");
     const [notificationBanner, setNotificationBanner] = useState(null);
     const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api";
@@ -66,18 +149,76 @@ function CaseReviewContent() {
                 setApp(data);
                 setDocs(data.documents || []);
                 setAuditEvents(data.auditEvents || []);
-                return;
             }
         } catch (e) {
             console.warn("Could not fetch from scrutiny API, checking fallback:", e);
         }
+
+        // Fetch ReviewReports (including AI_SCRUTINY_PRE_CHECK)
+        try {
+            const repRes = await fetch(`${API_BASE}/aicte/applications/${id}/reports`, {
+                headers: {
+                    "x-user-id": userProfile?.uid || userProfile?.email || "DEMO-AIC-034",
+                },
+                credentials: "include",
+            });
+            if (repRes.ok) {
+                const repData = await repRes.json();
+                setReports(repData || []);
+            }
+        } catch (re) {
+            console.warn("Could not fetch reports:", re);
+        }
+
         const found = dataService.getApplicationById(id);
-        setApp(found);
-        if (found) {
+        if (!app && found) {
+            setApp(found);
             setDocs(dataService.getDocuments(found.id));
             setAuditEvents(dataService.getAuditEvents(found.id));
         }
     };
+
+    const handleTriggerAi = async () => {
+        if (!app) return;
+        setTriggeringAi(true);
+        try {
+            const res = await fetch("http://127.0.0.1:8000/api/v1/jobs/trigger", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-Service-Authorization": "Bearer aicte_agent_secret_prod_2026_x89f_secure_token",
+                },
+                body: JSON.stringify({
+                    application_id: app.id,
+                    application_number: app.applicationNumber,
+                }),
+            });
+            if (res.ok) {
+                setNotificationBanner({
+                    type: "success",
+                    message: "AI Scrutiny job triggered. Evaluating statutory rules and Groq LLM qualitative analysis...",
+                });
+                setTimeout(() => {
+                    reloadData();
+                    setTriggeringAi(false);
+                }, 3500);
+            } else {
+                const err = await res.json().catch(() => ({}));
+                setNotificationBanner({
+                    type: "error",
+                    message: err.detail || "Failed to trigger AI Scrutiny pre-check.",
+                });
+                setTriggeringAi(false);
+            }
+        } catch (e) {
+            setNotificationBanner({
+                type: "error",
+                message: "Could not connect to AI microservice at http://127.0.0.1:8000.",
+            });
+            setTriggeringAi(false);
+        }
+    };
+
     useEffect(() => {
         reloadData();
     }, [id, userProfile]);
@@ -94,7 +235,47 @@ function CaseReviewContent() {
       </div>);
     }
     const institution = app.institution || dataService.getInstitutionById(app.institutionId);
-    // 1. Action: Return for Clarification (Deficiency)
+    const aiReport = reports.find((r) => r.reportType === "AI_SCRUTINY_PRE_CHECK");
+  let aiMeta = null;
+  if (aiReport?.metadataJson) {
+    try {
+      aiMeta = JSON.parse(aiReport.metadataJson);
+    } catch (e) {}
+  }
+
+  // 0. Action: Authenticated View PDF
+  const handleViewPdf = async (doc) => {
+    try {
+      const res = await fetch(`${API_BASE}/documents/${doc.id}/download?inline=true`, {
+        headers: {
+          "x-user-id": userProfile?.uid || userProfile?.employeeCode || "DEMO-AIC-034",
+        },
+        credentials: "include",
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setNotificationBanner({
+          type: "error",
+          message: err.error || `Document file payload unavailable on server storage (HTTP ${res.status}).`,
+        });
+        return;
+      }
+
+      const rawBlob = await res.blob();
+      const pdfBlob = new Blob([rawBlob], { type: "application/pdf" });
+      const url = window.URL.createObjectURL(pdfBlob);
+      window.open(url, "_blank");
+    } catch (err) {
+      setNotificationBanner({
+        type: "error",
+        message: `Could not fetch document: ${err.message}`,
+      });
+    }
+  };
+
+  // 1. Action: Return for Clarification (Deficiency)
+
     const handleReturnDeficiency = async () => {
         if (!deficiencyNotes.trim())
             return;
@@ -245,15 +426,27 @@ function CaseReviewContent() {
       </div>
 
       {/* Notification Toast Banner */}
-      {notificationBanner && (<div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900 flex items-center justify-between shadow-2xs">
+      {notificationBanner && (
+        <div className={`rounded-lg border p-3 text-xs flex items-center justify-between shadow-2xs ${
+          (typeof notificationBanner === "object" && notificationBanner.type === "error")
+            ? "border-red-200 bg-red-50 text-red-900"
+            : (typeof notificationBanner === "object" && notificationBanner.type === "success")
+            ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+            : "border-blue-200 bg-blue-50 text-blue-900"
+        }`}>
           <div className="flex items-center gap-2">
-            <CheckCircle2 className="h-4 w-4 text-blue-600"/>
-            <span>{notificationBanner}</span>
+            {typeof notificationBanner === "object" && notificationBanner.type === "error" ? (
+              <AlertCircle className="h-4 w-4 text-red-600 shrink-0" />
+            ) : (
+              <CheckCircle2 className="h-4 w-4 text-blue-600 shrink-0" />
+            )}
+            <span>{typeof notificationBanner === "object" ? notificationBanner.message : notificationBanner}</span>
           </div>
-          <button onClick={() => setNotificationBanner(null)} className="text-blue-500 hover:text-blue-800 text-xs font-bold">
+          <button onClick={() => setNotificationBanner(null)} className="opacity-70 hover:opacity-100 text-xs font-bold shrink-0 ml-3">
             ✕
           </button>
-        </div>)}
+        </div>
+      )}
 
       {/* Case Header Strip (Jira Detail Banner) */}
       <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-2xs">
@@ -305,19 +498,42 @@ function CaseReviewContent() {
         {/* Left Column (2 Cols): Dossier Tabs */}
         <div className="lg:col-span-2 space-y-4">
           {/* Tabs Navigation */}
-          <div className="flex items-center gap-1 border-b border-slate-200 bg-white px-2 rounded-t-lg">
+          <div className="flex items-center gap-1 border-b border-slate-200 bg-white px-2 rounded-t-lg overflow-x-auto">
             {[
-            { id: "overview", label: "Dossier & Intake" },
-            { id: "documents", label: `Documents (${docs.length})` },
-            { id: "deficiency", label: `Observations & Deficiencies (${app.returnCount || 0})` },
-            { id: "evc", label: "EVC Inspection" },
-            { id: "audit", label: `Audit Log (${auditEvents.length})` },
-        ].map((tab) => (<button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`px-3 py-2.5 text-xs font-medium border-b-2 transition ${activeTab === tab.id
-                ? "border-blue-600 text-blue-900 font-bold"
-                : "border-transparent text-slate-500 hover:text-slate-800"}`}>
-                {tab.label}
-              </button>))}
+              { id: "overview", label: "Dossier & Intake" },
+              { id: "documents", label: `Documents (${docs.length})` },
+              {
+                id: "ai_scrutiny",
+                label: "AI Scrutiny & Pre-Check",
+                isAi: true,
+                badgeText: aiReport ? (aiReport.outcome === "RECOMMEND_ACCEPT" ? "Compliant" : "Deficiency Flagged") : "Pre-Check Ready",
+                badgeColor: aiReport?.outcome === "RECOMMEND_ACCEPT" ? "bg-emerald-100 text-emerald-800 border-emerald-300" : "bg-indigo-100 text-indigo-800 border-indigo-200",
+              },
+              { id: "deficiency", label: `Observations & Deficiencies (${app.returnCount || 0})` },
+              { id: "evc", label: "EVC Inspection" },
+              { id: "audit", label: `Audit Log (${auditEvents.length})` },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`px-3 py-2.5 text-xs font-medium border-b-2 transition flex items-center gap-1.5 shrink-0 ${
+                  activeTab === tab.id
+                    ? "border-indigo-600 text-indigo-900 font-bold bg-indigo-50/40 rounded-t"
+                    : "border-transparent text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                {tab.isAi && <Sparkles className="h-3.5 w-3.5 text-indigo-600" />}
+                <span>{tab.label}</span>
+                {tab.badgeText && (
+                  <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${tab.badgeColor || "bg-slate-100 text-slate-700"}`}>
+                    {tab.badgeText}
+                  </span>
+                )}
+              </button>
+            ))}
           </div>
+
+
 
           {/* Tab 1: Overview & Data */}
           {activeTab === "overview" && (<Card className="border border-slate-200/90 shadow-2xs bg-white">
@@ -406,7 +622,7 @@ function CaseReviewContent() {
                     </div>
 
                     <div className="flex items-center gap-2 shrink-0">
-                      <Button variant="ghost" size="sm" onClick={() => window.open(`${API_BASE}/documents/${doc.id}/download`, "_blank")} className="h-7 text-xs px-2 text-blue-600 hover:text-blue-800">
+                      <Button variant="ghost" size="sm" onClick={() => handleViewPdf(doc)} className="h-7 text-xs px-2 text-blue-600 hover:text-blue-800">
                         <Eye className="h-3.5 w-3.5 mr-1"/> View PDF
                       </Button>
                       <Button size="sm" variant={doc.verificationStatus === "verified" ? "default" : "outline"} onClick={() => handleSetDocStatus(doc.id, "verified")} className={`h-7 text-xs ${doc.verificationStatus === "verified"
@@ -425,8 +641,247 @@ function CaseReviewContent() {
               </div>
             </Card>)}
 
+          {/* Tab: AI Scrutiny Pre-Check */}
+          {activeTab === "ai_scrutiny" && (
+            <div className="space-y-4">
+              <Card className="border border-indigo-200 shadow-xs bg-white">
+                <CardHeader className="p-4 border-b border-indigo-100 bg-gradient-to-r from-indigo-50/60 to-purple-50/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <div className="h-6 w-6 rounded bg-indigo-600 text-white flex items-center justify-center font-bold text-xs">
+                        <Sparkles className="h-3.5 w-3.5" />
+                      </div>
+                      <CardTitle className="text-sm font-semibold text-slate-900">
+                        AI Scrutiny Advisory Pre-Check
+                      </CardTitle>
+                      <span className="text-[10px] font-semibold bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded-full border border-indigo-200">
+                        APH 2024-2027 Norms
+                      </span>
+                    </div>
+                    <CardDescription className="text-xs text-slate-500 mt-1">
+                      Automated statutory rules + Groq LLM qualitative analysis. Non-binding advisory evaluation for Scrutiny Committee.
+                    </CardDescription>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleTriggerAi}
+                      disabled={triggeringAi}
+                      className="h-8 text-xs bg-white border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                    >
+                      <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${triggeringAi ? "animate-spin" : ""}`} />
+                      {triggeringAi ? "Analyzing..." : "Re-Run AI Scrutiny"}
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="p-4 space-y-4 text-xs">
+                  {!aiReport ? (
+                    <div className="p-8 text-center text-slate-500 bg-slate-50 rounded-lg border border-dashed border-slate-200">
+                      <Bot className="h-10 w-10 text-slate-400 mx-auto mb-2" />
+                      <p className="font-semibold text-slate-800 text-sm">No AI Scrutiny Report Yet</p>
+                      <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
+                        Trigger the automated pre-check to extract document text, evaluate APH 2024-2027 statutory rules, and run Groq LLM qualitative analysis.
+                      </p>
+                      <Button
+                        size="sm"
+                        onClick={handleTriggerAi}
+                        disabled={triggeringAi}
+                        className="mt-4 bg-indigo-600 hover:bg-indigo-700 text-white text-xs h-8"
+                      >
+                        <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+                        Run AI Pre-Check Now
+                      </Button>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Executive Summary Card (Clean, Styled, No Raw Markdown) */}
+                      <AiExecutiveSummary
+                        content={aiReport.content}
+                        outcome={aiReport.outcome}
+                        versionHash={aiMeta?.versionHash}
+                      />
+
+                      {/* Section 1: Deterministic Statutory Rules (5 Checks) */}
+                      <div>
+                        <h4 className="font-semibold text-slate-900 text-xs uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
+                          <CheckCircle2 className="h-3.5 w-3.5 text-slate-600" />
+                          Deterministic Statutory Checklist (APH 2024-2027)
+                        </h4>
+                        <div className="space-y-2">
+                          {(aiMeta?.findings || []).length === 0 ? (
+                            <p className="text-slate-400 italic">No deterministic findings recorded.</p>
+                          ) : (
+                            (aiMeta?.findings || []).map((f, idx) => (
+                              <div
+                                key={idx}
+                                className={`p-3 rounded-lg border transition ${
+                                  f.status === "COMPLIANT"
+                                    ? "bg-emerald-50/30 border-emerald-200"
+                                    : f.status === "DEFICIENT"
+                                    ? "bg-red-50/30 border-red-200"
+                                    : "bg-amber-50/30 border-amber-200"
+                                }`}
+                              >
+                                <div className="flex items-start justify-between gap-2">
+                                  <div>
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-semibold text-slate-900">{f.rule_name}</span>
+                                      <span className="text-[10px] text-slate-500 font-mono bg-white px-1.5 py-0.5 rounded border border-slate-200">
+                                        {f.aph_clause}
+                                      </span>
+                                    </div>
+                                    <p className="text-[11px] text-slate-600 mt-1">
+                                      <strong>Evidence:</strong> {f.evidence}
+                                    </p>
+                                    <p className="text-[11px] text-slate-500 mt-0.5">
+                                      <strong>Recommendation:</strong> {f.recommendation}
+                                    </p>
+                                  </div>
+                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase shrink-0 ${
+                                    f.status === "COMPLIANT"
+                                      ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
+                                      : f.status === "DEFICIENT"
+                                      ? "bg-red-100 text-red-800 border border-red-300"
+                                      : "bg-amber-100 text-amber-800 border border-amber-300"
+                                  }`}>
+                                    {f.status}
+                                  </span>
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Section 2: Groq LLM Qualitative Scrutiny */}
+                      <div className="pt-2 border-t border-slate-100">
+                        <div className="flex items-center justify-between mb-2.5">
+                          <h4 className="font-semibold text-indigo-950 text-xs uppercase tracking-wider flex items-center gap-1.5">
+                            <Sparkles className="h-3.5 w-3.5 text-indigo-600" />
+                            Groq LLM Qualitative & Contextual Scrutiny
+                          </h4>
+                          <div className="flex items-center gap-2">
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${
+                              aiMeta?.llmAnalysis?.status === "SUCCESS"
+                                ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
+                                : aiMeta?.llmAnalysis?.status === "TECHNICAL_FAILURE"
+                                ? "bg-red-100 text-red-800 border border-red-300"
+                                : "bg-amber-100 text-amber-800 border border-amber-300"
+                            }`}>
+                              Status: {aiMeta?.llmAnalysis?.status || "UNKNOWN"}
+                            </span>
+                            <span className="text-[10px] font-mono bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded border border-indigo-200">
+                              Model: {aiMeta?.llmAnalysis?.model || "llama-3.3-70b-versatile"}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Distinct State Handling: SKIPPED */}
+                        {aiMeta?.llmAnalysis?.status === "SKIPPED" && (
+                          <div className="p-3.5 bg-amber-50/70 border border-amber-200 rounded-lg text-xs space-y-1.5">
+                            <div className="flex items-center gap-2 font-semibold text-amber-900">
+                              <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
+                              <span>Qualitative LLM Scrutiny Skipped</span>
+                            </div>
+                            <p className="text-amber-800 text-[11px] leading-relaxed">
+                              {aiMeta.llmAnalysis.summary || "Groq LLM qualitative scrutiny skipped: GROQ_API_KEY is not configured."}
+                            </p>
+                            <p className="text-[11px] text-amber-900/80 pt-1.5 border-t border-amber-200/80 font-medium">
+                              Deterministic statutory pre-checks above were evaluated independently and remain authoritative. AICTE Scrutiny Committee officers must perform qualitative cross-verification manually.
+                            </p>
+                          </div>
+                        )}
+
+                        {/* Distinct State Handling: TECHNICAL_FAILURE */}
+                        {aiMeta?.llmAnalysis?.status === "TECHNICAL_FAILURE" && (
+                          <div className="p-3.5 bg-red-50/70 border border-red-200 rounded-lg text-xs space-y-1.5">
+                            <div className="flex items-center gap-2 font-semibold text-red-900">
+                              <AlertCircle className="h-4 w-4 text-red-600 shrink-0" />
+                              <span>Qualitative Scrutiny Technical Failure</span>
+                            </div>
+                            <p className="text-red-800 text-[11px] leading-relaxed">
+                              {aiMeta.llmAnalysis.errorMessage || aiMeta.llmAnalysis.summary || "An unexpected error occurred during Groq LLM inference."}
+                            </p>
+                            <p className="text-[11px] text-red-900/80 pt-1.5 border-t border-red-200/80 font-medium">
+                              Advisory LLM analysis did not complete. Deterministic statutory rules remain valid and unimpacted for committee review.
+                            </p>
+                          </div>
+                        )}
+
+                        {/* Distinct State Handling: DISABLED */}
+                        {aiMeta?.llmAnalysis?.status === "DISABLED" && (
+                          <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-600">
+                            <p className="font-semibold text-slate-800">Qualitative Scrutiny Disabled</p>
+                            <p className="text-[11px] text-slate-500 mt-0.5">
+                              LLM inference is disabled by configuration (GROQ_ENABLED=false).
+                            </p>
+                          </div>
+                        )}
+
+                        {/* Distinct State Handling: SUCCESS (Only state allowed to claim verified) */}
+                        {aiMeta?.llmAnalysis?.status === "SUCCESS" && (
+                          <div className="space-y-2">
+                            {(!aiMeta?.llmFindings || aiMeta.llmFindings.length === 0) ? (
+                              <div className="p-4 bg-emerald-50/50 rounded-lg border border-emerald-200 text-center text-emerald-900">
+                                <p className="text-xs font-semibold">No qualitative inconsistencies or conditional clauses flagged.</p>
+                                <p className="text-[11px] text-emerald-700 mt-0.5">
+                                  Groq scrutiny verified cross-document institutional naming and declarations without discrepancies.
+                                </p>
+                              </div>
+                            ) : (
+                              aiMeta.llmFindings.map((lf, idx) => (
+                                <div
+                                  key={idx}
+                                  className="p-3 rounded-lg border border-purple-200 bg-purple-50/20 text-xs space-y-1.5"
+                                >
+                                  <div className="flex items-center justify-between gap-2">
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-bold text-slate-900 text-xs">
+                                        {lf.finding_type?.replace(/_/g, " ")}
+                                      </span>
+                                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 border border-purple-300">
+                                        {lf.severity_suggestion || "ADVISORY_LOW"}
+                                      </span>
+                                      {lf.confidence && (
+                                        <span className="text-[10px] text-slate-500 font-mono">
+                                          Conf: {Math.round(lf.confidence * 100)}%
+                                        </span>
+                                      )}
+                                    </div>
+                                    {lf.document_name && (
+                                      <span className="text-[11px] text-slate-500 font-mono">
+                                        {lf.document_name} {lf.page_number ? `(p. ${lf.page_number})` : ""}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="text-slate-800 leading-relaxed font-normal">
+                                    {lf.explanation}
+                                  </p>
+                                  {lf.evidence_excerpt && (
+                                    <blockquote className="border-l-2 border-purple-400 pl-2.5 py-0.5 text-[11px] text-slate-600 italic bg-white/70 rounded-r">
+                                      &ldquo;{lf.evidence_excerpt}&rdquo;
+                                    </blockquote>
+                                  )}
+                                  <p className="text-[11px] text-indigo-700 font-medium">
+                                    <strong>Scrutiny Recommendation:</strong> {lf.human_review_recommendation}
+                                  </p>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
           {/* Tab 3: Observations & Deficiencies */}
-          {activeTab === "deficiency" && (<Card className="border border-slate-200/90 shadow-2xs bg-white">
+          {activeTab === "deficiency" && (
+<Card className="border border-slate-200/90 shadow-2xs bg-white">
               <CardHeader className="p-4 border-b border-slate-100 flex flex-row items-center justify-between">
                 <div>
                   <CardTitle className="text-sm font-semibold text-slate-900">
@@ -523,12 +978,61 @@ function CaseReviewContent() {
 
         {/* Right Column (1 Col): Jira Meta Inspector Panel */}
         <div className="space-y-6">
+          {/* AI Scrutiny Assistant Widget */}
+          <Card className="border border-indigo-200 shadow-2xs bg-gradient-to-b from-white to-indigo-50/40">
+            <CardHeader className="p-3.5 border-b border-indigo-100 flex flex-row items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <Sparkles className="h-4 w-4 text-indigo-600" />
+                <CardTitle className="text-xs font-bold uppercase tracking-wider text-indigo-950">
+                  AI Scrutiny Pre-Check
+                </CardTitle>
+              </div>
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-800">
+                APH 2024-2027
+              </span>
+            </CardHeader>
+            <CardContent className="p-3.5 space-y-2.5 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-500 font-medium">Pre-Check Result:</span>
+                <span className={`font-bold px-2 py-0.5 rounded text-[11px] ${
+                  aiReport?.outcome === "RECOMMEND_ACCEPT"
+                    ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
+                    : aiReport?.outcome === "DEFICIENCY_SUGGESTED"
+                    ? "bg-amber-100 text-amber-800 border border-amber-300"
+                    : "bg-slate-100 text-slate-700 border border-slate-300"
+                }`}>
+                  {aiReport?.outcome || "Pending Run"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-slate-500">Statutory Rules:</span>
+                <span className="font-semibold text-slate-800">
+                  {aiMeta?.findings?.length || 0} checks evaluated
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-slate-500">Groq LLM Observations:</span>
+                <span className="font-semibold text-purple-700">
+                  {aiMeta?.llmFindings?.length || 0} flagged
+                </span>
+              </div>
+              <Button
+                size="sm"
+                onClick={() => setActiveTab("ai_scrutiny")}
+                className="w-full h-7 text-xs bg-indigo-600 hover:bg-indigo-700 text-white mt-1 shadow-2xs font-semibold"
+              >
+                <Sparkles className="h-3 w-3 mr-1" /> Inspect Scrutiny Findings
+              </Button>
+            </CardContent>
+          </Card>
+
           <Card className="border border-slate-200/90 shadow-2xs bg-white">
             <CardHeader className="p-4 border-b border-slate-100">
               <CardTitle className="text-xs font-bold uppercase tracking-wider text-slate-500">
                 Case Details
               </CardTitle>
             </CardHeader>
+
             <CardContent className="p-4 space-y-3.5 text-xs">
               <div>
                 <span className="text-slate-500 block">Workflow State</span>

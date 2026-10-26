@@ -411,6 +411,27 @@ export const applicationService = {
       console.error("Warning: Failed to initialize workflow instance:", workflowErr.message);
     }
 
+    // 10. Trigger asynchronous AI Scrutiny Assistant pre-check (Non-blocking, advisory)
+    try {
+      const aiServiceUrl = process.env.AI_SERVICE_URL || "http://127.0.0.1:8000";
+      const aiSecret = process.env.AI_BACKEND_SECRET || "aicte_agent_secret_prod_2026_x89f_secure_token";
+      fetch(`${aiServiceUrl}/api/v1/jobs/trigger`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Service-Authorization": `Bearer ${aiSecret}`,
+        },
+        body: JSON.stringify({
+          application_id: result.id,
+          application_number: result.applicationNumber,
+        }),
+      }).catch((err) => {
+        console.warn(`[AI-Scrutiny-Assistant] Background dispatch skipped for ${result.applicationNumber}:`, err.message);
+      });
+    } catch (dispatchErr) {
+      console.warn("[AI-Scrutiny-Assistant] Dispatch error:", dispatchErr.message);
+    }
+
     return result;
   },
 

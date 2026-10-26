@@ -85,12 +85,12 @@ export function TopBar({ onMenuToggle }) {
           </button>
 
           {showRoleSwitcher && (<div className="absolute right-0 mt-2 w-72 rounded-lg border border-slate-200 bg-white p-2 shadow-lg z-50 animate-in fade-in zoom-in-95">
-              <div className="px-2 py-1.5 border-b border-slate-100">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-600">
-                  Quick Switch Persona
+              <div className="px-2 py-1.5 border-b border-slate-100 bg-slate-50/70">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-indigo-700">
+                  Demo Official Switcher (Dev Mode)
                 </p>
                 <p className="text-[11px] text-slate-500">
-                  Test workflow states across different user roles
+                  Authenticates session via backend (<code className="text-[10px] text-slate-700">/auth/switch-demo</code>) — verifies RBAC permissions
                 </p>
               </div>
               <div className="mt-1 space-y-1 max-h-64 overflow-y-auto">

@@ -94,6 +94,21 @@ export const scrutinyController = {
         return res.status(404).json({ error: "Application not found in scrutiny docket" });
       }
 
+      // Least-privilege constraint for system_service:
+      if (req.user?.accountType === "system_service") {
+        const allowedStatuses = ["in_review"];
+        const allowedStages = ["scrutiny", "re_scrutiny"];
+
+        if (!allowedStatuses.includes(application.status) || !allowedStages.includes(application.currentStageId)) {
+          return res.status(403).json({
+            error: `Access denied. AI scrutiny service can only access applications actively undergoing scrutiny. Current status: '${application.status}', stage: '${application.currentStageId}'.`,
+            code: "INELIGIBLE_APPLICATION_FOR_AI_SCRUTINY",
+            currentStatus: application.status,
+            currentStageId: application.currentStageId,
+          });
+        }
+      }
+
       res.json({
         ...application,
         formData: application.formDataJson ? JSON.parse(application.formDataJson) : {},
