@@ -63,6 +63,24 @@ export const documentController = {
       const originalFilename = file ? file.originalname : req.body.originalFilename || "uploaded_document.pdf";
       const storagePath = file ? path.relative(process.cwd(), file.path) : req.body.storagePath || `uploads/${originalFilename}`;
 
+      if (file?.path && fs.existsSync(file.path)) {
+        const magicBuf = Buffer.alloc(5);
+        const fd = fs.openSync(file.path, "r");
+        try {
+          fs.readSync(fd, magicBuf, 0, 5, 0);
+        } finally {
+          fs.closeSync(fd);
+        }
+        if (magicBuf.toString("ascii") !== "%PDF-") {
+          try { fs.unlinkSync(file.path); } catch (e) {}
+          res.status(400).json({
+            error: `Uploaded file '${file.originalname}' is not a valid PDF document. Please upload a genuine, uncorrupted PDF file.`,
+            code: "INVALID_PDF_FILE",
+          });
+          return;
+        }
+      }
+
       let checksum = req.body.checksum || null;
       if (!checksum) {
         if (file?.path && fs.existsSync(file.path)) {
@@ -148,28 +166,11 @@ export const documentController = {
       if (doc.storagePath) {
         const fullPath = path.resolve(doc.storagePath);
         if (fs.existsSync(fullPath)) {
-          // Validate PDF signature using actual bytes
-          let fd;
-          try {
-            fd = fs.openSync(fullPath, "r");
-            const magicBuf = Buffer.alloc(5);
-            fs.readSync(fd, magicBuf, 0, 5, 0);
-            if (magicBuf.toString("ascii") !== "%PDF-") {
-              return res.status(422).json({
-                error: `Corrupted file payload: '${doc.originalFilename}' is not a valid PDF file.`,
-                code: "MALFORMED_PDF_FILE",
-                documentId: doc.id,
-              });
-            }
-          } finally {
-            if (fd !== undefined) fs.closeSync(fd);
-          }
-
           const stat = fs.statSync(fullPath);
           const isAttachment = req.query.download === "true" || req.query.download === "1";
           const disposition = isAttachment ? "attachment" : "inline";
 
-          res.setHeader("Content-Type", "application/pdf");
+          res.setHeader("Content-Type", doc.mimeType || "application/pdf");
           res.setHeader("Content-Length", stat.size);
           res.setHeader(
             "Content-Disposition",

@@ -42,7 +42,33 @@ export const APPLICATION_CATEGORY_LABELS = {
   increase_intake: "Increase in Intake",
   closure: "Closure of Institution/Program",
   name_change: "Change of Name/Site",
+  // Database stored category variants and aliases
+  "Extension of Approval — EoA": "Extension of Approval",
+  "Extension of Approval": "Extension of Approval",
+  "EOA": "Extension of Approval",
+  "EoA": "Extension of Approval",
+  "Increase in Intake": "Increase in Intake",
+  "New Institution": "New Institution",
+  "New Program": "New Program",
+  "Closure of Institution/Program": "Closure of Institution/Program",
+  "Change of Name/Site": "Change of Name/Site",
 };
+
+/**
+ * Safely resolves an application category code or string to its human-readable label.
+ * Always returns a non-empty string; falls back to category value or 'Application'.
+ * @param {string | null | undefined} category
+ * @returns {string}
+ */
+export function getApplicationCategoryLabel(category) {
+  if (!category) return "Application";
+  return (
+    APPLICATION_CATEGORY_LABELS[category] ||
+    APPLICATION_CATEGORY_LABELS[category.toLowerCase?.()] ||
+    category ||
+    "Application"
+  );
+}
 
 // ─── Application Document ───
 export const DOCUMENT_VERIFICATION_STATUSES = [
@@ -84,6 +110,22 @@ export const ROLE_LABELS = {
   competent_authority: "Competent Authority",
   admin: "Administrator",
 };
+
+/**
+ * Safely resolves a role key to its human-readable label.
+ * Falls back to a formatted version of the role string, or 'AICTE Officer' on missing/null.
+ * @param {string | null | undefined} role
+ * @returns {string}
+ */
+export function getRoleLabel(role) {
+  if (!role) return "AICTE Officer";
+  return (
+    ROLE_LABELS[role] ||
+    ROLE_LABELS[role.toLowerCase?.()] ||
+    role.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) ||
+    "AICTE Officer"
+  );
+}
 
 /** Status colours for UI badges */
 export const STATUS_COLORS = {

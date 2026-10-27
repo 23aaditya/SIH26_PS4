@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { StatusBadge, SlaCountdown } from "@/components/shared/StatusBadge";
 import { dataService } from "@/lib/dataService";
-import { APPLICATION_CATEGORY_LABELS } from "@/lib/types";
+import { APPLICATION_CATEGORY_LABELS, getApplicationCategoryLabel } from "@/lib/types";
 import { FileText, Clock, AlertTriangle, CheckCircle2, Plus, ArrowRight, CalendarClock, FolderLock, ChevronRight, } from "lucide-react";
 function InstitutionDashboardContent() {
     const { userProfile } = useAuth();
@@ -103,7 +103,7 @@ function InstitutionDashboardContent() {
               </p>
               <div className="mt-2 flex flex-wrap gap-2">
                 {actionRequiredApps.map((app) => (<Link key={app.id} href={`/institution/applications/${app.id}`} className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-900 bg-white px-2.5 py-1 rounded border border-amber-300 hover:bg-amber-100 transition shadow-2xs">
-                    Resolve {app.applicationNumber} ({APPLICATION_CATEGORY_LABELS[app.applicationCategory]})
+                    Resolve {app.applicationNumber} ({getApplicationCategoryLabel(app?.applicationCategory)})
                     <ArrowRight className="h-3 w-3"/>
                   </Link>))}
               </div>
@@ -173,7 +173,7 @@ function InstitutionDashboardContent() {
                     </Link>
                   </td>
                   <td className="py-3 px-4 text-slate-700 font-medium">
-                    {APPLICATION_CATEGORY_LABELS[app.applicationCategory]}
+                    {getApplicationCategoryLabel(app?.applicationCategory)}
                   </td>
                   <td className="py-3 px-4 text-slate-600">
                     <span className="font-medium text-slate-900">{app.currentStageName}</span>

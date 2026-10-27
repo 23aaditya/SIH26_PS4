@@ -11,10 +11,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { StatusBadge, DocumentBadge, SlaCountdown } from "@/components/shared/StatusBadge";
 import { WorkflowStepper, AuditTimeline } from "@/components/shared/WorkflowTimeline";
-import { Dialog } from "@/components/ui/dialog";
 import { dataService } from "@/lib/dataService";
-import { APPLICATION_CATEGORY_LABELS, ROLE_LABELS, } from "@/lib/types";
-import { FileText, Building2, CheckCircle2, ArrowLeft, ShieldCheck, Eye, UserCheck, Calendar, RotateCcw, Check, Sparkles, Bot, RefreshCw, AlertTriangle, AlertCircle } from "lucide-react";
+import { APPLICATION_CATEGORY_LABELS, getApplicationCategoryLabel, getRoleLabel } from "@/lib/types";
+import { Dialog } from "@/components/ui/dialog";
+import { FileText, Building2, CheckCircle2, ArrowLeft, ShieldCheck, Eye, UserCheck, Calendar, RotateCcw, Check, Sparkles, Bot, RefreshCw, AlertTriangle, AlertCircle, Loader2 } from "lucide-react";
 
 function AiExecutiveSummary({ content, outcome, versionHash }) {
   if (!content) return null;
@@ -130,6 +130,7 @@ function CaseReviewContent() {
     const [decisionConditions, setDecisionConditions] = useState("");
     const [reports, setReports] = useState([]);
     const [triggeringAi, setTriggeringAi] = useState(false);
+    const [aiJobProgress, setAiJobProgress] = useState(null);
     const [selectedRole, setSelectedRole] = useState("scrutiny_committee");
     const [notificationBanner, setNotificationBanner] = useState(null);
     const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api";
@@ -164,7 +165,8 @@ function CaseReviewContent() {
             });
             if (repRes.ok) {
                 const repData = await repRes.json();
-                setReports(repData || []);
+                const list = Array.isArray(repData) ? repData : repData?.reports || [];
+                setReports(list);
             }
         } catch (re) {
             console.warn("Could not fetch reports:", re);
@@ -178,44 +180,127 @@ function CaseReviewContent() {
         }
     };
 
-    const handleTriggerAi = async () => {
-        if (!app) return;
+    const handleTriggerAi = async (opts = { forceRerun: true, retryLlm: false }) => {
+        if (!app || triggeringAi) return;
         setTriggeringAi(true);
+        setAiJobProgress({
+            status: "PENDING",
+            message: "Dispatching AI Scrutiny pre-check to evaluation queue...",
+        });
+
         try {
-            const res = await fetch("http://127.0.0.1:8000/api/v1/jobs/trigger", {
+            const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+            const res = await fetch(`${API_BASE}/aicte/applications/${app.id}/trigger-ai`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
-                    "X-Service-Authorization": "Bearer aicte_agent_secret_prod_2026_x89f_secure_token",
+                    "x-user-id": userProfile?.uid || userProfile?.email || "DEMO-AIC-034",
+                    ...(token ? { Authorization: `Bearer ${token}` } : {}),
                 },
                 body: JSON.stringify({
-                    application_id: app.id,
-                    application_number: app.applicationNumber,
+                    forceRerun: opts.forceRerun !== false,
+                    retryLlm: !!opts.retryLlm,
                 }),
+                credentials: "include",
             });
-            if (res.ok) {
-                setNotificationBanner({
-                    type: "success",
-                    message: "AI Scrutiny job triggered. Evaluating statutory rules and Groq LLM qualitative analysis...",
-                });
-                setTimeout(() => {
-                    reloadData();
-                    setTriggeringAi(false);
-                }, 3500);
-            } else {
+
+            if (!res.ok) {
                 const err = await res.json().catch(() => ({}));
                 setNotificationBanner({
                     type: "error",
-                    message: err.detail || "Failed to trigger AI Scrutiny pre-check.",
+                    message: err.error || err.detail || "Failed to trigger AI Scrutiny pre-check.",
                 });
                 setTriggeringAi(false);
+                setAiJobProgress(null);
+                return;
             }
+
+            const triggerData = await res.json();
+            const job = triggerData.job || {};
+            const jobId = job.job_id;
+
+            if (job.status === "COMPLETED") {
+                setNotificationBanner({
+                    type: "success",
+                    message: "AI Scrutiny pre-check evaluation retrieved successfully.",
+                });
+                await reloadData();
+                setTriggeringAi(false);
+                setAiJobProgress(null);
+                return;
+            }
+
+            // Bounded polling loop: Poll every 1500ms, max 35 attempts (~50s)
+            let attempts = 0;
+            const maxAttempts = 35;
+            const pollInterval = setInterval(async () => {
+                attempts++;
+                try {
+                    const statusRes = await fetch(`${API_BASE}/aicte/applications/${app.id}/ai-job-status/${jobId}`, {
+                        headers: {
+                            "x-user-id": userProfile?.uid || userProfile?.email || "DEMO-AIC-034",
+                            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                        },
+                        credentials: "include",
+                    });
+
+                    if (statusRes.ok) {
+                        const statusData = await statusRes.json();
+                        const currentStatus = statusData.status;
+
+                        if (currentStatus === "COMPLETED") {
+                            clearInterval(pollInterval);
+                            setNotificationBanner({
+                                type: "success",
+                                message: `AI Scrutiny pre-check completed (${statusData.findings_count || 0} checks evaluated).`,
+                            });
+                            await reloadData();
+                            setTriggeringAi(false);
+                            setAiJobProgress(null);
+                            return;
+                        }
+
+                        if (currentStatus === "FAILED") {
+                            clearInterval(pollInterval);
+                            setNotificationBanner({
+                                type: "error",
+                                message: `AI Scrutiny job failed: ${statusData.error_message || "Technical execution failure"}.`,
+                            });
+                            setTriggeringAi(false);
+                            setAiJobProgress(null);
+                            return;
+                        }
+
+                        setAiJobProgress({
+                            status: currentStatus,
+                            jobId,
+                            message: currentStatus === "PROCESSING"
+                                ? "Extracting documents, verifying SHA-256 checksums, and evaluating APH statutory norms..."
+                                : "Queued in scrutiny worker pipeline...",
+                        });
+                    }
+                } catch (pollErr) {
+                    console.warn("Polling error for AI job:", pollErr);
+                }
+
+                if (attempts >= maxAttempts) {
+                    clearInterval(pollInterval);
+                    setNotificationBanner({
+                        type: "warning",
+                        message: "AI Scrutiny pre-check is taking longer than expected. Please refresh this page shortly.",
+                    });
+                    setTriggeringAi(false);
+                    setAiJobProgress(null);
+                }
+            }, 1500);
+
         } catch (e) {
             setNotificationBanner({
                 type: "error",
-                message: "Could not connect to AI microservice at http://127.0.0.1:8000.",
+                message: `Could not trigger AI scrutiny service: ${e.message || "Network error"}`,
             });
             setTriggeringAi(false);
+            setAiJobProgress(null);
         }
     };
 
@@ -352,11 +437,11 @@ function CaseReviewContent() {
             institutionId: app.institutionId,
             actorUid: userProfile?.uid || "admin",
             actorRole: userProfile?.role || "admin",
-            action: `Officer Reassigned to ${ROLE_LABELS[selectedRole]}`,
-            reason: `Case workflow assignment transferred to ${ROLE_LABELS[selectedRole]} for regulatory processing.`,
+            action: `Officer Reassigned to ${getRoleLabel(selectedRole)}`,
+            reason: `Case workflow assignment transferred to ${getRoleLabel(selectedRole)} for regulatory processing.`,
         });
         setShowAssignModal(false);
-        setNotificationBanner(`Case reassigned to ${ROLE_LABELS[selectedRole]}`);
+        setNotificationBanner(`Case reassigned to ${getRoleLabel(selectedRole)}`);
         reloadData();
     };
     // Set individual document verification status
@@ -460,7 +545,7 @@ function CaseReviewContent() {
               <span className="capitalize">{app.regionId} Regional Office</span>
             </div>
             <h1 className="mt-1 text-xl font-bold text-slate-900">
-              {APPLICATION_CATEGORY_LABELS[app.applicationCategory]} — Case Review
+              {(app?.applicationCategory && APPLICATION_CATEGORY_LABELS[app.applicationCategory]) || getApplicationCategoryLabel(app?.applicationCategory)} — Case Review
             </h1>
             <p className="text-xs text-slate-600 mt-0.5">
               Current Stage: <strong className="text-slate-900">{app.currentStageName}</strong>
@@ -506,8 +591,24 @@ function CaseReviewContent() {
                 id: "ai_scrutiny",
                 label: "AI Scrutiny & Pre-Check",
                 isAi: true,
-                badgeText: aiReport ? (aiReport.outcome === "RECOMMEND_ACCEPT" ? "Compliant" : "Deficiency Flagged") : "Pre-Check Ready",
-                badgeColor: aiReport?.outcome === "RECOMMEND_ACCEPT" ? "bg-emerald-100 text-emerald-800 border-emerald-300" : "bg-indigo-100 text-indigo-800 border-indigo-200",
+                badgeText: aiJobProgress
+                  ? "Running Pre-Check..."
+                  : !aiReport
+                  ? "Pending Run"
+                  : aiMeta?.llmAnalysis?.status === "TECHNICAL_FAILURE"
+                  ? "Completed (LLM Warning)"
+                  : aiReport.outcome === "RECOMMEND_ACCEPT"
+                  ? "Compliant"
+                  : "Deficiency Flagged",
+                badgeColor: aiJobProgress
+                  ? "bg-amber-100 text-amber-800 border-amber-300 animate-pulse"
+                  : !aiReport
+                  ? "bg-slate-100 text-slate-700 border-slate-300"
+                  : aiMeta?.llmAnalysis?.status === "TECHNICAL_FAILURE"
+                  ? "bg-amber-100 text-amber-800 border-amber-300"
+                  : aiReport.outcome === "RECOMMEND_ACCEPT"
+                  ? "bg-emerald-100 text-emerald-800 border-emerald-300"
+                  : "bg-red-100 text-red-800 border-red-300",
               },
               { id: "deficiency", label: `Observations & Deficiencies (${app.returnCount || 0})` },
               { id: "evc", label: "EVC Inspection" },
@@ -676,7 +777,29 @@ function CaseReviewContent() {
                   </div>
                 </CardHeader>
                 <CardContent className="p-4 space-y-4 text-xs">
-                  {!aiReport ? (
+                  {/* Live Progress Banner */}
+                  {aiJobProgress && (
+                    <div className="p-4 bg-indigo-50/80 border border-indigo-200 rounded-lg flex items-center gap-3">
+                      <Loader2 className="h-5 w-5 text-indigo-600 animate-spin shrink-0" />
+                      <div className="space-y-0.5">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-indigo-950 text-xs">
+                            AI Scrutiny Analysis Running
+                          </span>
+                          {aiJobProgress.jobId && (
+                            <span className="font-mono text-[10px] bg-indigo-100 text-indigo-800 px-1.5 py-0.5 rounded border border-indigo-200">
+                              {aiJobProgress.jobId}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-indigo-800">
+                          {aiJobProgress.message}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {!aiReport && !aiJobProgress ? (
                     <div className="p-8 text-center text-slate-500 bg-slate-50 rounded-lg border border-dashed border-slate-200">
                       <Bot className="h-10 w-10 text-slate-400 mx-auto mb-2" />
                       <p className="font-semibold text-slate-800 text-sm">No AI Scrutiny Report Yet</p>
@@ -685,7 +808,7 @@ function CaseReviewContent() {
                       </p>
                       <Button
                         size="sm"
-                        onClick={handleTriggerAi}
+                        onClick={() => handleTriggerAi({ forceRerun: true, retryLlm: false })}
                         disabled={triggeringAi}
                         className="mt-4 bg-indigo-600 hover:bg-indigo-700 text-white text-xs h-8"
                       >
@@ -693,7 +816,7 @@ function CaseReviewContent() {
                         Run AI Pre-Check Now
                       </Button>
                     </div>
-                  ) : (
+                  ) : aiReport && (
                     <>
                       {/* Executive Summary Card (Clean, Styled, No Raw Markdown) */}
                       <AiExecutiveSummary
@@ -701,6 +824,63 @@ function CaseReviewContent() {
                         outcome={aiReport.outcome}
                         versionHash={aiMeta?.versionHash}
                       />
+
+                      {/* Dossier & Run Provenance Metadata Pills */}
+                      <div className="flex flex-wrap items-center gap-2 pt-1 pb-1">
+                        {aiMeta?.versionHash && (
+                          <span className="text-[10px] font-mono bg-slate-100 text-slate-700 px-2 py-0.5 rounded border border-slate-200">
+                            Version Hash: {aiMeta.versionHash.slice(0, 12)}...
+                          </span>
+                        )}
+                        {aiMeta?.reusedReport ? (
+                          <span className="text-[10px] font-semibold bg-blue-50 text-blue-700 px-2 py-0.5 rounded border border-blue-200">
+                            Canonical Report Reused (Unchanged Documents)
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-semibold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded border border-emerald-200">
+                            Fresh Scrutiny Evaluation
+                          </span>
+                        )}
+                        {aiMeta?.isResubmission && (
+                          <span className="text-[10px] font-semibold bg-purple-50 text-purple-700 px-2 py-0.5 rounded border border-purple-200">
+                            Event-Triggered Resubmission Scrutiny
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Resubmission Scrutiny Audit Matrix (if available) */}
+                      {aiMeta?.resubmissionDiff && aiMeta.resubmissionDiff.length > 0 && (
+                        <div className="p-3.5 bg-blue-50/60 border border-blue-200 rounded-lg space-y-2">
+                          <div className="flex items-center justify-between">
+                            <h5 className="font-bold text-blue-950 text-xs flex items-center gap-1.5">
+                              <ShieldCheck className="h-4 w-4 text-blue-600" />
+                              Resubmission Comparison Audit Diff
+                            </h5>
+                            <span className="text-[10px] font-semibold bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full border border-blue-300">
+                              Resubmission vs. Prior Report
+                            </span>
+                          </div>
+                          <div className="space-y-1.5 pt-1">
+                            {aiMeta.resubmissionDiff.map((diffItem, didx) => (
+                              <div key={didx} className="p-2.5 bg-white border border-blue-100 rounded text-xs flex items-center justify-between gap-2">
+                                <div>
+                                  <span className="font-semibold text-slate-900">{diffItem.rule_name}</span>
+                                  <p className="text-[11px] text-slate-600 mt-0.5">{diffItem.note}</p>
+                                </div>
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase shrink-0 ${
+                                  diffItem.classification === "RESOLVED"
+                                    ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
+                                    : diffItem.classification === "STILL_OUTSTANDING"
+                                    ? "bg-red-100 text-red-800 border border-red-300"
+                                    : "bg-amber-100 text-amber-800 border border-amber-300"
+                                }`}>
+                                  {diffItem.classification}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
 
                       {/* Section 1: Deterministic Statutory Rules (5 Checks) */}
                       <div>
@@ -795,7 +975,7 @@ function CaseReviewContent() {
 
                         {/* Distinct State Handling: TECHNICAL_FAILURE */}
                         {aiMeta?.llmAnalysis?.status === "TECHNICAL_FAILURE" && (
-                          <div className="p-3.5 bg-red-50/70 border border-red-200 rounded-lg text-xs space-y-1.5">
+                          <div className="p-3.5 bg-red-50/70 border border-red-200 rounded-lg text-xs space-y-2">
                             <div className="flex items-center gap-2 font-semibold text-red-900">
                               <AlertCircle className="h-4 w-4 text-red-600 shrink-0" />
                               <span>Qualitative Scrutiny Technical Failure</span>
@@ -803,9 +983,21 @@ function CaseReviewContent() {
                             <p className="text-red-800 text-[11px] leading-relaxed">
                               {aiMeta.llmAnalysis.errorMessage || aiMeta.llmAnalysis.summary || "An unexpected error occurred during Groq LLM inference."}
                             </p>
-                            <p className="text-[11px] text-red-900/80 pt-1.5 border-t border-red-200/80 font-medium">
+                            <p className="text-[11px] text-red-900/80 pt-1 border-t border-red-200/80 font-medium">
                               Advisory LLM analysis did not complete. Deterministic statutory rules remain valid and unimpacted for committee review.
                             </p>
+                            <div className="pt-1">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleTriggerAi({ forceRerun: true, retryLlm: true })}
+                                disabled={triggeringAi}
+                                className="text-xs bg-white border-red-300 text-red-800 hover:bg-red-50 h-7"
+                              >
+                                <RefreshCw className={`h-3 w-3 mr-1 ${triggeringAi ? "animate-spin" : ""}`} />
+                                Retry Qualitative LLM Scrutiny
+                              </Button>
+                            </div>
                           </div>
                         )}
 
@@ -835,7 +1027,7 @@ function CaseReviewContent() {
                                   key={idx}
                                   className="p-3 rounded-lg border border-purple-200 bg-purple-50/20 text-xs space-y-1.5"
                                 >
-                                  <div className="flex items-center justify-between gap-2">
+                                  <div className="flex items-center justify-between gap-2 flex-wrap">
                                     <div className="flex items-center gap-2">
                                       <span className="font-bold text-slate-900 text-xs">
                                         {lf.finding_type?.replace(/_/g, " ")}
@@ -849,11 +1041,23 @@ function CaseReviewContent() {
                                         </span>
                                       )}
                                     </div>
-                                    {lf.document_name && (
-                                      <span className="text-[11px] text-slate-500 font-mono">
-                                        {lf.document_name} {lf.page_number ? `(p. ${lf.page_number})` : ""}
-                                      </span>
-                                    )}
+                                    <div className="flex items-center gap-1.5">
+                                      {lf.excerpt_verified === true && (
+                                        <span className="text-[10px] font-medium bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded border border-emerald-300">
+                                          Verified Source Excerpt
+                                        </span>
+                                      )}
+                                      {lf.excerpt_verified === false && (
+                                        <span className="text-[10px] font-medium bg-amber-100 text-amber-800 px-2 py-0.5 rounded border border-amber-300">
+                                          Manual Excerpt Verification Required
+                                        </span>
+                                      )}
+                                      {lf.document_name && (
+                                        <span className="text-[11px] text-slate-500 font-mono">
+                                          {lf.document_name} {lf.page_number ? `(p. ${lf.page_number})` : ""}
+                                        </span>
+                                      )}
+                                    </div>
                                   </div>
                                   <p className="text-slate-800 leading-relaxed font-normal">
                                     {lf.explanation}
@@ -862,6 +1066,11 @@ function CaseReviewContent() {
                                     <blockquote className="border-l-2 border-purple-400 pl-2.5 py-0.5 text-[11px] text-slate-600 italic bg-white/70 rounded-r">
                                       &ldquo;{lf.evidence_excerpt}&rdquo;
                                     </blockquote>
+                                  )}
+                                  {lf.facts_vs_inference && (
+                                    <p className="text-[11px] text-slate-600 bg-white/60 p-1.5 rounded border border-purple-100">
+                                      <strong>Factual Basis vs. Inference:</strong> {lf.facts_vs_inference}
+                                    </p>
                                   )}
                                   <p className="text-[11px] text-indigo-700 font-medium">
                                     <strong>Scrutiny Recommendation:</strong> {lf.human_review_recommendation}
@@ -1220,7 +1429,7 @@ function CaseReviewContent() {
             <Label className="font-semibold text-slate-800 block mb-1">Target Officer Role</Label>
             <select value={selectedRole} onChange={(e) => setSelectedRole(e.target.value)} className="w-full h-8 px-2 rounded border border-slate-200 text-xs text-slate-800">
               {AICTE_ROLES.map((role) => (<option key={role} value={role}>
-                  {ROLE_LABELS[role]}
+                  {getRoleLabel(role)}
                 </option>))}
             </select>
           </div>

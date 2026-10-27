@@ -107,6 +107,10 @@ class ScrutinyAgent:
 
             summary = parsed.get("summary") or "Qualitative scrutiny analysis completed."
             raw_findings = parsed.get("findings") or []
+            def _normalize(txt: str) -> str:
+                import re
+                return re.sub(r"[^\w\s]", "", (txt or "").lower()).replace("\n", " ")
+
             validated_findings: List[LLMFinding] = []
 
             for item in raw_findings:
@@ -125,17 +129,47 @@ class ScrutinyAgent:
                     except (ValueError, TypeError):
                         conf = 0.7
 
+                    raw_excerpt = str(item.get("evidence_excerpt", ""))[:300].strip()
+                    doc_id_ref = item.get("document_id")
+
+                    # Verify that quoted excerpt actually appears in extracted text
+                    excerpt_verified = True
+                    if raw_excerpt and len(raw_excerpt) >= 15:
+                        norm_exc = _normalize(raw_excerpt)
+                        found = False
+                        # Check referenced doc first
+                        if doc_id_ref and doc_id_ref in extracted_docs:
+                            doc_full = _normalize(extracted_docs[doc_id_ref].get("full_text", ""))
+                            if norm_exc in doc_full or norm_exc[:45] in doc_full:
+                                found = True
+                        if not found:
+                            for d_info in extracted_docs.values():
+                                doc_full = _normalize(d_info.get("full_text", ""))
+                                if norm_exc in doc_full or norm_exc[:45] in doc_full:
+                                    found = True
+                                    break
+                        if not found:
+                            excerpt_verified = False
+                            conf = max(0.3, conf - 0.2)
+
+                    rec = str(item.get("human_review_recommendation", "Review submitted documentation."))
+                    if not excerpt_verified:
+                        rec = f"[Manual Excerpt Verification Required] {rec}"
+
                     # Build validated Pydantic model
                     finding = LLMFinding(
                         finding_type=str(item.get("finding_type", "QUALITATIVE_OBSERVATION")),
                         explanation=str(item.get("explanation", "Observation flagged for verification.")),
                         severity_suggestion=sev,
-                        evidence_excerpt=str(item.get("evidence_excerpt", ""))[:300],
-                        document_id=item.get("document_id"),
+                        evidence_excerpt=raw_excerpt,
+                        document_id=doc_id_ref,
                         document_name=item.get("document_name"),
                         page_number=int(item["page_number"]) if item.get("page_number") is not None and str(item["page_number"]).isdigit() else None,
-                        confidence=conf,
-                        human_review_recommendation=str(item.get("human_review_recommendation", "Review submitted documentation.")),
+                        confidence=round(conf, 2),
+                        human_review_recommendation=rec,
+                        facts_vs_inference=item.get("facts_vs_inference"),
+                        significance=item.get("significance"),
+                        excerpt_verified=excerpt_verified,
                         is_llm_generated=True,
                     )
                     validated_findings.append(finding)

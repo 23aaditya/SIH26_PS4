@@ -7,7 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { StatusBadge, SlaCountdown } from "@/components/shared/StatusBadge";
 import { dataService } from "@/lib/dataService";
-import { APPLICATION_CATEGORIES, APPLICATION_CATEGORY_LABELS, } from "@/lib/types";
+import { APPLICATION_CATEGORIES, APPLICATION_CATEGORY_LABELS, getApplicationCategoryLabel } from "@/lib/types";
 import { Search, FileText, } from "lucide-react";
 const AICTE_ROLES = [
     "regional_officer",
@@ -183,7 +183,7 @@ function ApplicationQueueContent() {
                         <p className="text-[11px] text-slate-400 capitalize">{app.regionId} Region</p>
                       </td>
                       <td className="py-3 px-4 text-slate-700 font-medium">
-                        {APPLICATION_CATEGORY_LABELS[app.applicationCategory]}
+                        {getApplicationCategoryLabel(app?.applicationCategory)}
                       </td>
                       <td className="py-3 px-4 font-medium text-slate-800">
                         {app.currentStageName}

@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { StatusBadge, SlaCountdown } from "@/components/shared/StatusBadge";
 import { dataService, API_BASE } from "@/lib/dataService";
-import { APPLICATION_CATEGORY_LABELS, ROLE_LABELS } from "@/lib/types";
+import { APPLICATION_CATEGORY_LABELS, getApplicationCategoryLabel, ROLE_LABELS } from "@/lib/types";
 import { StaffManagementModule } from "@/components/aicte/StaffManagementModule";
 import {
   FileText,
@@ -586,7 +586,7 @@ function AicteDashboardContent() {
                       <p className="text-[11px] text-slate-400 capitalize">{regionLabel}</p>
                     </td>
                     <td className="py-3 px-4 text-slate-700 font-medium">
-                      {APPLICATION_CATEGORY_LABELS[app.applicationCategory] || app.applicationCategory || "EoA"}
+                      {getApplicationCategoryLabel(app.applicationCategory)}
                     </td>
                     <td className="py-3 px-4 font-medium text-slate-800">
                       {app.currentStageName || app.currentStageId}

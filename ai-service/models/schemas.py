@@ -25,6 +25,9 @@ class PreCheckResult(BaseModel):
 class TriggerJobRequest(BaseModel):
     application_id: str
     application_number: Optional[str] = None
+    force_rerun: bool = False
+    retry_llm: bool = False
+    is_resubmission: bool = False
 
 class JobStatusResponse(BaseModel):
     job_id: str
@@ -76,6 +79,18 @@ class LLMFinding(BaseModel):
     human_review_recommendation: str = Field(
         ...,
         description="Specific recommended verification action for the human Scrutiny Officer."
+    )
+    facts_vs_inference: Optional[str] = Field(
+        None,
+        description="Explicit breakdown distinguishing verifiable facts from inferred interpretation."
+    )
+    significance: Optional[str] = Field(
+        None,
+        description="Explanation of why this evidence matters under AICTE regulatory norms."
+    )
+    excerpt_verified: bool = Field(
+        True,
+        description="Whether the quoted evidence excerpt was verified to exist in the extracted text."
     )
     is_llm_generated: bool = Field(
         True,
