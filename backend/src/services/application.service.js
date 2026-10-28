@@ -648,7 +648,7 @@ export const applicationService = {
     const scrutinyStage = workflowService.getStage("scrutiny");
     const newDeadline = workflowService.calculateDeadline(scrutinyStage.deadlineDays);
 
-    return prisma.$transaction(async (tx) => {
+    const resResult = await prisma.$transaction(async (tx) => {
       // 1. Mark latest pending deficiency resolved
       const pendingDeficiency = await tx.deficiencyRequest.findFirst({
         where: { applicationId, status: "pending" },
@@ -749,6 +749,31 @@ export const applicationService = {
 
       return updated;
     });
+
+    // 6. Automatically trigger AI re-scrutiny pre-check for the resubmitted dossier (Phase F Agentic Automation)
+    try {
+      const aiServiceUrl = process.env.AI_SERVICE_URL || "http://127.0.0.1:8000";
+      const aiSecret = process.env.AI_BACKEND_SECRET || "aicte_agent_secret_prod_2026_x89f_secure_token";
+      fetch(`${aiServiceUrl}/api/v1/jobs/trigger`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Service-Authorization": `Bearer ${aiSecret}`,
+        },
+        body: JSON.stringify({
+          application_id: applicationId,
+          application_number: application.applicationNumber,
+          is_resubmission: true,
+          force_rerun: true,
+        }),
+      }).catch((err) => {
+        console.warn(`[AI-Scrutiny-Assistant] Resubmission re-scrutiny trigger skipped for ${application.applicationNumber}:`, err.message);
+      });
+    } catch (dispatchErr) {
+      console.warn("[AI-Scrutiny-Assistant] Resubmission dispatch error:", dispatchErr.message);
+    }
+
+    return resResult;
   },
 
   async recordDecision(user, applicationId, decision, remarks, conditions) {

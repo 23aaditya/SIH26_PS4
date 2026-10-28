@@ -305,25 +305,40 @@ def check_occupancy_certificate(app_data: Dict[str, Any], extracted_docs: Dict[s
             rule_name=rule_name,
             status="DEFICIENT",
             aph_clause=aph_clause,
-            evidence="Mandatory Building Occupancy / Completion Certificate not found among submitted documents.",
+            evidence="No document record for mandatory Building Occupancy / Completion Certificate has been uploaded among submitted documents.",
             recommendation="Submit Occupancy / Building Completion Certificate issued by the competent municipal/local authority.",
         )
 
     doc_id = target_doc.get("id")
+
+    # State 2: Document record exists in metadata, but physical file is unavailable
+    if doc_id not in extracted_docs or extracted_docs[doc_id].get("unavailable"):
+        return RuleFinding(
+            rule_id=rule_id,
+            rule_name=rule_name,
+            status="NEEDS_HUMAN_REVIEW",
+            aph_clause=aph_clause,
+            evidence=f"Document metadata record for '{target_doc.get('originalFilename')}' ({target_doc.get('documentType')}) exists, but the physical file is unavailable on server storage for inspection.",
+            document_id=doc_id,
+            document_name=target_doc.get("originalFilename"),
+            recommendation="Technical verification required: Scrutiny officer must verify document file storage and request applicant to re-upload if file is missing.",
+        )
+
     extracted = extracted_docs.get(doc_id, {})
     full_text = extracted.get("full_text", "")
     is_scanned = extracted.get("is_scanned", False)
 
+    # State 3: File exists but is unreadable (scanned image or empty text layer)
     if is_scanned or len(full_text.strip()) < 50:
         return RuleFinding(
             rule_id=rule_id,
             rule_name=rule_name,
             status="NEEDS_HUMAN_REVIEW",
             aph_clause=aph_clause,
-            evidence=f"Occupancy Certificate '{target_doc.get('originalFilename')}' is a scanned image without an embedded digital text layer.",
+            evidence=f"Occupancy Certificate document '{target_doc.get('originalFilename')}' is uploaded and available, but appears to be a scanned image without an embedded digital text layer. Automated clearance cannot be verified.",
             document_id=doc_id,
             document_name=target_doc.get("originalFilename"),
-            recommendation="Scrutiny officer must visually verify the building completion details and municipal authority seal.",
+            recommendation="Scrutiny Committee officer must visually verify the building completion details and municipal authority seal.",
         )
 
     clearance_pattern = re.compile(

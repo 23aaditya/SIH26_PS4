@@ -97,91 +97,126 @@ class GroqScrutinyClient:
 
         client = self._get_client()
         active_model = model or settings.GROQ_MODEL
+        max_retries = 2
+        last_error_msg = None
 
-        try:
-            logger.info(f"Dispatching advisory scrutiny inference to Groq (model={active_model}, timeout={settings.GROQ_TIMEOUT}s)...")
-            response = await client.chat.completions.create(
-                model=active_model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                response_format={"type": "json_object"},
-                max_tokens=settings.GROQ_MAX_TOKENS,
-                temperature=0.1,  # Low temperature for factual consistency
-            )
+        for attempt in range(max_retries + 1):
+            try:
+                logger.info(
+                    f"Dispatching advisory scrutiny inference to Groq (model={active_model}, "
+                    f"timeout={settings.GROQ_TIMEOUT}s, attempt={attempt + 1}/{max_retries + 1})..."
+                )
+                response = await client.chat.completions.create(
+                    model=active_model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    response_format={"type": "json_object"},
+                    max_tokens=settings.GROQ_MAX_TOKENS,
+                    temperature=0.1,  # Low temperature for factual consistency
+                )
 
-            if not response.choices or not response.choices[0].message:
+                if not response.choices or not response.choices[0].message:
+                    return {
+                        "raw_content": None,
+                        "model_used": active_model,
+                        "status": "TECHNICAL_FAILURE",
+                        "error_message": "Groq returned an empty completion response.",
+                    }
+
+                content = response.choices[0].message.content
+                logger.info(f"Groq inference succeeded using model {active_model} (finish_reason={response.choices[0].finish_reason}).")
+                return {
+                    "raw_content": content,
+                    "model_used": active_model,
+                    "status": "SUCCESS",
+                    "error_message": None,
+                }
+
+            except RateLimitError as rle:
+                err_text = str(rle).lower()
+                is_quota = "quota" in err_text or "credit" in err_text or "balance" in err_text
+                if is_quota:
+                    sanitized_msg = "Groq API monthly or organization token quota exceeded. Account credit required."
+                    logger.warning(f"Groq Quota Exceeded: {sanitized_msg}")
+                    return {
+                        "raw_content": None,
+                        "model_used": active_model,
+                        "status": "TECHNICAL_FAILURE",
+                        "error_message": sanitized_msg,
+                    }
+                
+                # Check for retry-after in headers or text
+                sanitized_msg = "Groq API requests-per-minute (RPM) rate limit reached."
+                if attempt < max_retries:
+                    wait_sec = 2.0 * (attempt + 1)
+                    logger.warning(f"Rate limited by Groq on attempt {attempt + 1}. Backing off {wait_sec}s...")
+                    import asyncio
+                    await asyncio.sleep(wait_sec)
+                    continue
+                else:
+                    return {
+                        "raw_content": None,
+                        "model_used": active_model,
+                        "status": "TECHNICAL_FAILURE",
+                        "error_message": f"{sanitized_msg} Retry limit reached. Please re-run scrutiny in a moment.",
+                    }
+
+            except APITimeoutError:
+                sanitized_msg = f"Groq inference timed out after {settings.GROQ_TIMEOUT}s."
+                if attempt < max_retries:
+                    logger.warning(f"Groq timeout on attempt {attempt + 1}. Retrying once...")
+                    import asyncio
+                    await asyncio.sleep(1.5)
+                    continue
                 return {
                     "raw_content": None,
                     "model_used": active_model,
                     "status": "TECHNICAL_FAILURE",
-                    "error_message": "Groq returned an empty completion response.",
+                    "error_message": sanitized_msg,
                 }
 
-            content = response.choices[0].message.content
-            logger.info(f"Groq inference succeeded using model {active_model} (finish_reason={response.choices[0].finish_reason}).")
-            return {
-                "raw_content": content,
-                "model_used": active_model,
-                "status": "SUCCESS",
-                "error_message": None,
-            }
+            except APIConnectionError as ce:
+                sanitized_msg = f"Network connection failure while communicating with Groq API: {type(ce).__name__}."
+                if attempt < max_retries:
+                    import asyncio
+                    await asyncio.sleep(1.5)
+                    continue
+                return {
+                    "raw_content": None,
+                    "model_used": active_model,
+                    "status": "TECHNICAL_FAILURE",
+                    "error_message": sanitized_msg,
+                }
 
-        except RateLimitError:
-            logger.warning("Groq API rate limit exceeded during scrutiny pre-check.")
-            return {
-                "raw_content": None,
-                "model_used": active_model,
-                "status": "TECHNICAL_FAILURE",
-                "error_message": "Groq API rate limit or quota exceeded. Analysis skipped for this run.",
-            }
+            except APIStatusError as e:
+                status_code = getattr(e, "status_code", 500)
+                if status_code == 401:
+                    sanitized_msg = "Invalid Groq API Key or authentication failure."
+                elif status_code == 404:
+                    sanitized_msg = f"Groq model '{active_model}' is unavailable or not accessible with current API key."
+                elif status_code == 429:
+                    sanitized_msg = "Groq API rate limit or organization quota reached."
+                else:
+                    sanitized_msg = f"Groq API returned HTTP error status {status_code}."
 
-        except APITimeoutError:
-            logger.warning(f"Groq API call timed out after {settings.GROQ_TIMEOUT}s.")
-            return {
-                "raw_content": None,
-                "model_used": active_model,
-                "status": "TECHNICAL_FAILURE",
-                "error_message": f"Groq inference timed out after {settings.GROQ_TIMEOUT}s.",
-            }
+                logger.error(f"Groq API status error: {sanitized_msg}")
+                return {
+                    "raw_content": None,
+                    "model_used": active_model,
+                    "status": "TECHNICAL_FAILURE",
+                    "error_message": sanitized_msg,
+                }
 
-        except APIConnectionError:
-            logger.error("Network connection failure while communicating with Groq API.")
-            return {
-                "raw_content": None,
-                "model_used": active_model,
-                "status": "TECHNICAL_FAILURE",
-                "error_message": "Could not connect to Groq API endpoint. Network failure.",
-            }
-
-        except APIStatusError as e:
-            status_code = getattr(e, "status_code", 500)
-            if status_code == 401:
-                sanitized_msg = "Invalid Groq API Key or authentication failure."
-            elif status_code == 404:
-                sanitized_msg = f"Groq model '{active_model}' is unavailable or not accessible with current API key."
-            elif status_code == 429:
-                sanitized_msg = "Groq API rate limit or quota exceeded."
-            else:
-                sanitized_msg = f"Groq API returned HTTP error status {status_code}."
-
-            logger.error(f"Groq API status error: {sanitized_msg}")
-            return {
-                "raw_content": None,
-                "model_used": active_model,
-                "status": "TECHNICAL_FAILURE",
-                "error_message": sanitized_msg,
-            }
-
-        except Exception as e:
-            logger.error(f"Unexpected error during Groq inference: {type(e).__name__}")
-            return {
-                "raw_content": None,
-                "model_used": active_model,
-                "status": "TECHNICAL_FAILURE",
-                "error_message": f"LLM inference failure: {type(e).__name__}",
-            }
+            except Exception as e:
+                logger.error(f"Unexpected error during Groq inference: {type(e).__name__}: {e}")
+                return {
+                    "raw_content": None,
+                    "model_used": active_model,
+                    "status": "TECHNICAL_FAILURE",
+                    "error_message": f"LLM inference failure: {type(e).__name__}",
+                }
 
     async def validate_connection(self) -> Dict[str, Any]:
         """

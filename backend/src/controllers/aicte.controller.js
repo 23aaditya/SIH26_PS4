@@ -542,10 +542,147 @@ export const aicteController = {
         return res.status(403).json({ error: "Access denied." });
       }
       const { id } = req.params;
+      
+      // 1. Fetch reports directly from ReviewReport table
+      const reports = await prisma.reviewReport.findMany({
+        where: { applicationId: id },
+        include: {
+          submittedBy: {
+            select: { id: true, name: true, employeeCode: true },
+          },
+          workflowStage: {
+            select: { id: true, stageKey: true, stageName: true },
+          },
+        },
+        orderBy: { submittedAt: "desc" },
+      });
+
+      if (reports.length > 0) {
+        return res.json(reports);
+      }
+
+      // Fallback: check workflow stages if any
       const wfInstance = await workflowInstanceService.getForApplication(id);
       if (!wfInstance) return res.json([]);
-      const reports = wfInstance.stages.flatMap(s => s.reports || []);
-      res.json(reports);
+      const stageReports = wfInstance.stages.flatMap(s => s.reports || []);
+      res.json(stageReports);
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  // ─── POST /api/aicte/applications/:id/trigger-ai ──────────────────────────
+  async triggerAiScrutiny(req, res, next) {
+    try {
+      if (!req.user || req.user.accountType === "institution") {
+        return res.status(403).json({ error: "Access denied. Scrutiny authority required." });
+      }
+      const { id } = req.params;
+      const { forceRerun, retryLlm } = req.body || {};
+
+      const app = await prisma.application.findUnique({
+        where: { id },
+        include: { documents: true },
+      });
+      if (!app) {
+        return res.status(404).json({ error: "Application not found.", code: "APP_NOT_FOUND" });
+      }
+
+      const aiServiceUrl = process.env.AI_SERVICE_URL || "http://127.0.0.1:8000";
+      const aiSecret = process.env.AI_BACKEND_SECRET || "aicte_agent_secret_prod_2026_x89f_secure_token";
+
+      try {
+        const aiResp = await fetch(`${aiServiceUrl}/api/v1/jobs/trigger`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Service-Authorization": `Bearer ${aiSecret}`,
+          },
+          body: JSON.stringify({
+            application_id: app.id,
+            application_number: app.applicationNumber,
+            force_rerun: Boolean(forceRerun),
+            retry_llm: Boolean(retryLlm),
+          }),
+        });
+
+        if (!aiResp.ok) {
+          const errData = await aiResp.json().catch(() => ({}));
+          return res.status(aiResp.status).json({
+            error: errData.detail || `AI service returned error HTTP ${aiResp.status}`,
+            code: "AI_SERVICE_ERROR",
+          });
+        }
+
+        const jobData = await aiResp.json();
+        return res.json({
+          success: true,
+          jobId: jobData.job_id,
+          status: jobData.status,
+          applicationId: app.id,
+          applicationNumber: app.applicationNumber,
+          reportId: jobData.report_id,
+          outcome: jobData.outcome,
+          createdAt: jobData.created_at,
+        });
+      } catch (connErr) {
+        return res.status(503).json({
+          error: "AI scrutiny microservice is currently unreachable at http://127.0.0.1:8000.",
+          code: "AI_SERVICE_UNAVAILABLE",
+          detail: connErr.message,
+        });
+      }
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  // ─── GET /api/aicte/applications/:id/ai-job-status/:jobId ─────────────────
+  async getAiJobStatus(req, res, next) {
+    try {
+      if (!req.user || req.user.accountType === "institution") {
+        return res.status(403).json({ error: "Access denied." });
+      }
+      const { id, jobId } = req.params;
+
+      const aiServiceUrl = process.env.AI_SERVICE_URL || "http://127.0.0.1:8000";
+      const aiSecret = process.env.AI_BACKEND_SECRET || "aicte_agent_secret_prod_2026_x89f_secure_token";
+
+      try {
+        const aiResp = await fetch(`${aiServiceUrl}/api/v1/jobs/${jobId}`, {
+          headers: {
+            "X-Service-Authorization": `Bearer ${aiSecret}`,
+          },
+        });
+
+        if (!aiResp.ok) {
+          const errData = await aiResp.json().catch(() => ({}));
+          return res.status(aiResp.status).json({
+            error: errData.detail || `Job status lookup failed (HTTP ${aiResp.status})`,
+            code: "JOB_LOOKUP_FAILED",
+          });
+        }
+
+        const jobData = await aiResp.json();
+        return res.json({
+          success: true,
+          jobId: jobData.job_id,
+          applicationId: jobData.application_id,
+          applicationNumber: jobData.application_number,
+          status: jobData.status,
+          reportId: jobData.report_id,
+          outcome: jobData.outcome,
+          findingsCount: jobData.findings_count,
+          completedAt: jobData.completed_at,
+          errorMessage: jobData.error_message,
+        });
+      } catch (connErr) {
+        return res.status(503).json({
+          error: "AI scrutiny microservice unreachable for status polling.",
+          code: "AI_SERVICE_UNAVAILABLE",
+          detail: connErr.message,
+        });
+      }
     } catch (err) {
       next(err);
     }
@@ -995,6 +1132,33 @@ export const aicteController = {
         });
         resolvedStageId = currentStage?.id;
       }
+      if (!resolvedStageId) {
+        let wfInstance = await prisma.workflowInstance.findFirst({
+          where: { applicationId: id },
+        });
+        if (!wfInstance) {
+          wfInstance = await prisma.workflowInstance.create({
+            data: {
+              applicationId: id,
+              workflowTemplateKey: "EOA_STANDARD",
+              currentStageKey: stageKey || "scrutiny",
+              overallStatus: "IN_PROGRESS",
+            },
+          });
+        }
+        const createdStage = await prisma.workflowStageInstance.create({
+          data: {
+            workflowInstanceId: wfInstance.id,
+            applicationId: id,
+            stageKey: stageKey || "scrutiny",
+            stageName: "Scrutiny Committee Evaluation",
+            stageStatus: "IN_PROGRESS",
+            sequenceOrder: 1,
+            assignedCommittee: "SCRUTINY_COMMITTEE",
+          },
+        });
+        resolvedStageId = createdStage.id;
+      }
 
       if (!resolvedStageId || !title || !content) {
         return res.status(400).json({ error: "stageInstanceId (or stageKey), title, and content are required." });
@@ -1115,6 +1279,73 @@ export const aicteController = {
       });
 
       res.json({ success: true, document: updated });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  // ─── POST /api/aicte/applications/:id/trigger-ai ────────────────────────
+  async triggerAiScrutiny(req, res, next) {
+    try {
+      const { id } = req.params;
+      const { forceRerun, retryLlm, is_resubmission } = req.body || {};
+
+      const app = await prisma.application.findFirst({
+        where: { OR: [{ id }, { applicationNumber: id }] },
+      });
+      if (!app) return res.status(404).json({ error: "Application not found." });
+
+      const aiServiceUrl = process.env.AI_SERVICE_URL || "http://127.0.0.1:8000";
+      const secret = process.env.AI_BACKEND_SECRET || "aicte_agent_secret_prod_2026_x89f_secure_token";
+
+      const aiResp = await fetch(`${aiServiceUrl}/api/v1/jobs/trigger`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Service-Authorization": `Bearer ${secret}`,
+        },
+        body: JSON.stringify({
+          application_id: app.id,
+          application_number: app.applicationNumber,
+          force_rerun: !!forceRerun,
+          retry_llm: !!retryLlm,
+          is_resubmission: !!is_resubmission,
+        }),
+      });
+
+      if (!aiResp.ok) {
+        const errJson = await aiResp.json().catch(() => ({}));
+        return res.status(aiResp.status).json({
+          error: errJson.detail || "AI microservice failed to trigger scrutiny job.",
+        });
+      }
+
+      const jobData = await aiResp.json();
+      return res.json({ success: true, job: jobData });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  // ─── GET /api/aicte/applications/:id/ai-job-status/:jobId ───────────────
+  async getAiJobStatus(req, res, next) {
+    try {
+      const { jobId } = req.params;
+      const aiServiceUrl = process.env.AI_SERVICE_URL || "http://127.0.0.1:8000";
+      const secret = process.env.AI_BACKEND_SECRET || "aicte_agent_secret_prod_2026_x89f_secure_token";
+
+      const statusResp = await fetch(`${aiServiceUrl}/api/v1/jobs/${jobId}`, {
+        headers: {
+          "X-Service-Authorization": `Bearer ${secret}`,
+        },
+      });
+
+      if (!statusResp.ok) {
+        return res.status(statusResp.status).json({ error: "Failed to fetch AI job status." });
+      }
+
+      const statusData = await statusResp.json();
+      return res.json(statusData);
     } catch (err) {
       next(err);
     }

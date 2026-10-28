@@ -79,12 +79,21 @@ def compute_application_version_hash(
     )
     return hashlib.sha256(hash_seed.encode("utf-8")).hexdigest()
 
-async def run_scrutiny_analysis(job_id: str, application_id: str):
+async def run_scrutiny_analysis(
+    job_id: str,
+    application_id: str,
+    force_rerun: bool = False,
+    retry_llm: bool = False,
+    is_resubmission: bool = False,
+):
     """
     Background worker that runs deterministic statutory scrutiny checks on an application.
     Enforces retry safety, atomic idempotency, and cryptographic version integrity.
     """
-    logger.info(f"Starting scrutiny analysis for job {job_id}, application {application_id}")
+    logger.info(
+        f"Starting scrutiny analysis for job {job_id}, application {application_id} "
+        f"(force_rerun={force_rerun}, retry_llm={retry_llm}, is_resubmission={is_resubmission})"
+    )
     update_job_status(job_id, "PROCESSING")
 
     try:
@@ -105,7 +114,16 @@ async def run_scrutiny_analysis(job_id: str, application_id: str):
             try:
                 raw_bytes, downloaded_fname = await backend_client.download_document(doc_id)
                 if not raw_bytes or len(raw_bytes) == 0:
-                    raise ValueError(f"Downloaded empty document payload for {fname}")
+                    logger.warning(f"Doc {doc_id} ({fname}) has empty bytes payload.")
+                    extracted_docs[doc_id] = {
+                        "unavailable": True,
+                        "error": "Empty file payload on storage",
+                        "full_text": "",
+                        "is_scanned": True,
+                        "page_count": 0,
+                    }
+                    verified_doc_checksums[doc_id] = server_checksum or "empty"
+                    continue
 
                 computed_checksum = hashlib.sha256(raw_bytes).hexdigest()
                 if server_checksum and server_checksum.lower() != computed_checksum.lower():
@@ -115,9 +133,6 @@ async def run_scrutiny_analysis(job_id: str, application_id: str):
                     )
 
                 extracted = document_extractor.extract_from_bytes(raw_bytes, downloaded_fname or fname)
-                if extracted.get("metadata", {}).get("error"):
-                    raise ValueError(extracted["metadata"]["error"])
-
                 verified_doc_checksums[doc_id] = computed_checksum
                 extracted_docs[doc_id] = extracted
                 logger.info(
@@ -125,41 +140,37 @@ async def run_scrutiny_analysis(job_id: str, application_id: str):
                     f"scanned={extracted.get('is_scanned')}, checksum={computed_checksum[:10]}..."
                 )
             except Exception as doc_err:
-                logger.error(f"Technical failure downloading or extracting doc {doc_id} ({fname}): {doc_err}")
-                technical_failures.append({
-                    "doc_id": doc_id,
-                    "filename": fname,
+                logger.warning(f"Document file unavailable or extraction error for doc {doc_id} ({fname}): {doc_err}")
+                extracted_docs[doc_id] = {
+                    "unavailable": True,
                     "error": str(doc_err),
-                })
-
-        # Technical Failure Handling: If any required document failed download/extraction,
-        # fail the job explicitly. Never submit an incomplete report or key a report to a failed state.
-        if technical_failures:
-            failed_summary = ", ".join(f"{f['filename']} ({f['doc_id']})" for f in technical_failures)
-            err_msg = f"Technical document processing failure: Could not download or extract {len(technical_failures)} document(s): {failed_summary}."
-            logger.error(f"Job {job_id} aborted: {err_msg}")
-            update_job_status(job_id, "FAILED", error_message=err_msg)
-            return
+                    "full_text": "",
+                    "is_scanned": True,
+                    "page_count": 0,
+                }
+                verified_doc_checksums[doc_id] = server_checksum or "unavailable"
 
         # 3. Compute canonical idempotency version hash based on verified document content checksums
         version_hash = compute_application_version_hash(app_data, verified_doc_checksums)
         update_job_version(job_id, version_hash)
 
         # 4. Check if an identical version has already been analyzed and completed
-        existing_completed = get_completed_job_by_version(application_id, version_hash)
-        if existing_completed and existing_completed.get("report_id"):
-            logger.info(
-                f"Application {application_id} version {version_hash[:10]} already analyzed in job {existing_completed['job_id']}. Reusing results."
-            )
-            complete_job(
-                job_id=job_id,
-                version_hash=version_hash,
-                report_id=existing_completed["report_id"],
-                outcome=existing_completed["outcome"],
-                findings=json.loads(existing_completed.get("findings_json") or "[]"),
-                summary=existing_completed.get("summary") or "",
-            )
-            return
+        should_reuse = not (force_rerun or retry_llm or is_resubmission)
+        if should_reuse:
+            existing_completed = get_completed_job_by_version(application_id, version_hash)
+            if existing_completed and existing_completed.get("report_id"):
+                logger.info(
+                    f"Application {application_id} version {version_hash[:10]} already analyzed in job {existing_completed['job_id']}. Reusing results."
+                )
+                complete_job(
+                    job_id=job_id,
+                    version_hash=version_hash,
+                    report_id=existing_completed["report_id"],
+                    outcome=existing_completed["outcome"],
+                    findings=json.loads(existing_completed.get("findings_json") or "[]"),
+                    summary=existing_completed.get("summary") or "",
+                )
+                return
 
         # 5. Evaluate rules deterministically
         pre_check = rule_engine.evaluate_eoa(app_data, extracted_docs)
@@ -175,6 +186,55 @@ async def run_scrutiny_analysis(job_id: str, application_id: str):
             f"Advisory LLM scrutiny finished for {app_num}: status={llm_result.status}, "
             f"findings={len(llm_result.findings)}"
         )
+
+        # 5c. Compare with prior report if this is a resubmission or re-check
+        resubmission_diff = []
+        try:
+            prior_reports_resp = await backend_client.get_application_reports(application_id)
+            prior_reports = prior_reports_resp.get("reports", []) if isinstance(prior_reports_resp, dict) else []
+            prior_ai_report = None
+            for r in prior_reports:
+                if r.get("reportType") == "AI_SCRUTINY_PRE_CHECK":
+                    meta = r.get("metadataJson") or r.get("metadata") or {}
+                    if isinstance(meta, str):
+                        try:
+                            meta = json.loads(meta)
+                        except Exception:
+                            meta = {}
+                    if meta.get("findings"):
+                        prior_ai_report = meta
+                        break
+
+            if prior_ai_report:
+                prev_findings = prior_ai_report.get("findings", [])
+                curr_findings_by_id = {f.rule_id: f for f in pre_check.findings}
+
+                for pf in prev_findings:
+                    r_id = pf.get("rule_id")
+                    prev_status = pf.get("status")
+                    curr_f = curr_findings_by_id.get(r_id)
+
+                    if prev_status in ("DEFICIENT", "NEEDS_HUMAN_REVIEW"):
+                        if curr_f and curr_f.status == "COMPLIANT":
+                            classification = "RESOLVED"
+                            note = f"Previous {prev_status} item resolved by compliant evidence in current submission."
+                        elif curr_f and curr_f.status == "DEFICIENT":
+                            classification = "STILL_OUTSTANDING"
+                            note = "Deficiency remains outstanding in current submission."
+                        else:
+                            classification = "NEEDS_HUMAN_REVIEW"
+                            note = "Resubmitted documents require human officer inspection to verify resolution."
+
+                        resubmission_diff.append({
+                            "rule_id": r_id,
+                            "rule_name": pf.get("rule_name") or r_id,
+                            "previous_status": prev_status,
+                            "current_status": curr_f.status if curr_f else "NOT_EVALUATED",
+                            "classification": classification,
+                            "note": note,
+                        })
+        except Exception as diff_err:
+            logger.warning(f"Could not compute resubmission diff: {diff_err}")
 
         # 6. Retry-safe report submission: Check if Express already has a report for this version hash
         existing_report_id = await backend_client.find_existing_report_by_version(application_id, version_hash)
@@ -193,12 +253,22 @@ async def run_scrutiny_analysis(job_id: str, application_id: str):
             recommendations_parts.append(
                 f"- Qualitative Advisory Note: LLM scrutiny had technical limitation ({llm_result.error_message or 'service unavailable'}); deterministic findings remain authoritative."
             )
+        if resubmission_diff:
+            resolved_count = sum(1 for d in resubmission_diff if d["classification"] == "RESOLVED")
+            outstanding_count = sum(1 for d in resubmission_diff if d["classification"] == "STILL_OUTSTANDING")
+            recommendations_parts.append(
+                f"- Resubmission Audit: {resolved_count} item(s) resolved, {outstanding_count} item(s) still outstanding."
+            )
 
         combined_content = pre_check.summary
         if llm_result.status == "SUCCESS" and llm_result.summary:
             combined_content += f"\n\n--- AI Qualitative Scrutiny Observations ({llm_result.model_used or 'Groq LLM'}) ---\n{llm_result.summary}"
+        if resubmission_diff:
+            combined_content += "\n\n--- Resubmission Discrepancy Diff ---\n"
+            for d in resubmission_diff:
+                combined_content += f"• [{d['classification']}] {d['rule_name']}: {d['note']} (Previous: {d['previous_status']} -> Current: {d['current_status']})\n"
 
-        if existing_report_id:
+        if existing_report_id and should_reuse:
             report_id = existing_report_id
             logger.info(f"Reusing existing Express report {report_id} for version {version_hash[:10]}.")
         else:
@@ -222,10 +292,14 @@ async def run_scrutiny_analysis(job_id: str, application_id: str):
                         "findingsCount": len(llm_result.findings),
                         "errorMessage": llm_result.error_message,
                     },
+                    "resubmissionDiff": resubmission_diff,
+                    "isRerun": force_rerun or retry_llm,
+                    "isResubmission": is_resubmission,
+                    "reusedReport": False,
                 },
             }
             report_resp = await backend_client.submit_pre_check_report(application_id, report_payload)
-            report_id = report_resp.get("report", {}).get("id")
+            report_id = report_resp.get("report", {}).get("id") or existing_report_id
             logger.info(f"Advisory report submitted successfully for {app_num}. Report ID: {report_id}")
 
         # 7. Record job completion in SQLite with version hash
@@ -284,7 +358,14 @@ async def trigger_scrutiny_job(payload: TriggerJobRequest, background_tasks: Bac
 
     # Only dispatch new background task if the job was just created (status PENDING and no completed_at)
     if job.get("status") == "PENDING" and not job.get("completed_at"):
-        background_tasks.add_task(run_scrutiny_analysis, job["job_id"], payload.application_id)
+        background_tasks.add_task(
+            run_scrutiny_analysis,
+            job["job_id"],
+            payload.application_id,
+            payload.force_rerun,
+            payload.retry_llm,
+            payload.is_resubmission,
+        )
 
     findings = []
     if job.get("findings_json"):

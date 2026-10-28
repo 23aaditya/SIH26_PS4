@@ -6,9 +6,9 @@ import { RequireRole } from "@/components/guards/RequireAuth";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { StatusBadge, SlaCountdown } from "@/components/shared/StatusBadge";
-import { API_BASE } from "@/lib/dataService";
-import { DelegationModal } from "@/components/aicte/DelegationModal";
-import { AvailabilityModal } from "@/components/aicte/AvailabilityModal";
+import { dataService, API_BASE } from "@/lib/dataService";
+import { APPLICATION_CATEGORY_LABELS, ROLE_LABELS, getApplicationCategoryLabel } from "@/lib/types";
+import { StaffManagementModule } from "@/components/aicte/StaffManagementModule";
 import {
   FileText,
   Clock,
@@ -812,7 +812,7 @@ function AicteDashboardContent() {
                         <p className="font-bold text-slate-900 truncate max-w-xs">
                           {app.institutionName}
                         </p>
-                        <p className="text-[11px] text-slate-400">{app.regionName || "Western Region"} • {app.category}</p>
+                        <p className="text-[11px] text-slate-400">{app.regionName || "Western Region"} • {getApplicationCategoryLabel(app.category || app.applicationCategory)}</p>
                       </td>
                       <td className="py-3 px-4">
                         <p className="font-semibold text-slate-800">{app.currentStageName}</p>

@@ -1,7 +1,7 @@
 import json
 import logging
 import httpx
-from typing import Dict, Any, Tuple, Optional
+from typing import Dict, Any, Tuple, Optional, List
 from config import settings
 
 logger = logging.getLogger("ai_scrutiny_client")
@@ -37,6 +37,21 @@ class BackendClient:
                 filename = content_disposition.split("filename=")[-1].strip('"\' ')
             return resp.content, filename
 
+    async def get_application_reports(self, application_id: str) -> List[Dict[str, Any]]:
+        """Fetch all reports for an application from Express backend."""
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                resp = await client.get(
+                    f"{self.base_url}/aicte/applications/{application_id}/reports",
+                    headers=self.headers,
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    return data if isinstance(data, list) else []
+        except Exception as e:
+            logger.warning(f"Could not fetch reports for application {application_id}: {e}")
+        return []
+
     async def find_existing_report_by_version(
         self, application_id: str, version_hash: str
     ) -> Optional[str]:
@@ -45,19 +60,8 @@ class BackendClient:
         Guarantees retry-safe execution without creating duplicate ReviewReport records.
         """
         try:
-            async with httpx.AsyncClient(timeout=20.0) as client:
-                resp = await client.get(
-                    f"{self.base_url}/aicte/applications/{application_id}/reports",
-                    headers=self.headers,
-                )
-                if resp.status_code != 200:
-                    return None
-
-                reports = resp.json()
-                if not isinstance(reports, list):
-                    return None
-
-                for r in reports:
+            reports = await self.get_application_reports(application_id)
+            for r in reports:
                     if r.get("reportType") == "AI_SCRUTINY_PRE_CHECK":
                         meta_str = r.get("metadataJson")
                         if meta_str:

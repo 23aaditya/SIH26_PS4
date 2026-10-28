@@ -397,6 +397,27 @@ export const workflowInstanceService = {
           },
         });
         if (existing) {
+          // If the existing report had a technical failure/skip for LLM and the new one succeeded,
+          // or if new findings/metadata are provided, safely update the canonical report record!
+          const existingMeta = existing.metadataJson ? JSON.parse(existing.metadataJson) : {};
+          const newMeta = reportData.metadata || {};
+          const wasFailedLlm = existingMeta.llmAnalysis?.status === "TECHNICAL_FAILURE" || existingMeta.llmAnalysis?.status === "SKIPPED";
+          const isNowSuccessLlm = newMeta.llmAnalysis?.status === "SUCCESS";
+          const hasNewFindings = (newMeta.llmFindings?.length || 0) > (existingMeta.llmFindings?.length || 0);
+
+          if ((wasFailedLlm && isNowSuccessLlm) || hasNewFindings || newMeta.isResubmission) {
+            const updated = await tx.reviewReport.update({
+              where: { id: existing.id },
+              data: {
+                title: reportData.title || existing.title,
+                content: reportData.content || existing.content,
+                recommendations: reportData.recommendations || existing.recommendations,
+                outcome: reportData.outcome || existing.outcome,
+                metadataJson: JSON.stringify(newMeta),
+              },
+            });
+            return updated;
+          }
           return existing;
         }
       }
