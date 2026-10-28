@@ -17,6 +17,7 @@ import adminRoutes from "./routes/admin.routes.js";
 import applicationTypeRoutes from "./routes/applicationType.routes.js";
 import scrutinyRoutes from "./routes/scrutiny.routes.js";
 import aicteRoutes from "./routes/aicte.routes.js";
+import delegationRoutes from "./routes/delegation.routes.js";
 
 dotenv.config();
 
@@ -69,6 +70,7 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/application-types", applicationTypeRoutes);
 app.use("/api/aicte/scrutiny", scrutinyRoutes);
 app.use("/api/aicte", aicteRoutes);
+app.use("/api/delegations", delegationRoutes);
 
 // Global Error Handler
 app.use(errorHandler);

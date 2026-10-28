@@ -721,6 +721,32 @@ export const applicationService = {
         },
       });
 
+      // Synchronize workflowInstance stage if present
+      const wfInstance = await tx.workflowInstance.findUnique({
+        where: { applicationId },
+        include: { stages: true },
+      });
+      if (wfInstance) {
+        const clarificationStage = wfInstance.stages.find((s) => s.stageKey === "clarification");
+        if (clarificationStage) {
+          await tx.workflowStageInstance.update({
+            where: { id: clarificationStage.id },
+            data: { stageStatus: "RESPONSE_RECEIVED", completedAt: now, reviewerComments: responseText },
+          });
+        }
+        const scrutinyStageRecord = wfInstance.stages.find((s) => s.stageKey === "scrutiny");
+        if (scrutinyStageRecord) {
+          await tx.workflowStageInstance.update({
+            where: { id: scrutinyStageRecord.id },
+            data: { stageStatus: "ASSIGNED", assignedAt: now, dueAt: newDeadline },
+          });
+        }
+        await tx.workflowInstance.update({
+          where: { id: wfInstance.id },
+          data: { currentStageKey: "scrutiny", overallStatus: "AWAITING_AICTE_ACTION" },
+        });
+      }
+
       return updated;
     });
   },

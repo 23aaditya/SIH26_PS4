@@ -3,7 +3,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/components/providers/AuthProvider";
-import { LayoutDashboard, FileText, PlusCircle, ClipboardCheck, FolderLock, Bell, Building2, Users, CalendarDays, BarChart4, Sliders, ShieldCheck, ChevronLeft, ChevronRight, } from "lucide-react";
+import { LayoutDashboard, FileText, PlusCircle, ClipboardCheck, FolderLock, Bell, Building2, Users, CalendarDays, BarChart4, Sliders, ShieldCheck, ChevronLeft, ChevronRight, Network } from "lucide-react";
 const navItems = [
     // ─── Institution Portal Items ───
     {
@@ -61,7 +61,14 @@ const navItems = [
         label: "Official Dashboard",
         href: "/aicte/dashboard",
         icon: LayoutDashboard,
-        roles: ["regional_officer", "bureau_officer", "scrutiny_committee", "evc_coordinator", "competent_authority", "admin"],
+        roles: ["regional_officer", "bureau_officer", "scrutiny_committee", "evc_coordinator", "competent_authority", "admin", "super_admin", "aicte", "reviewing_officer", "unit_head"],
+    },
+    {
+        category: "Core Processing",
+        label: "My Work Tree",
+        href: "/aicte/my-work-tree",
+        icon: Network,
+        roles: ["regional_officer", "bureau_officer", "scrutiny_committee", "evc_coordinator", "competent_authority", "admin", "super_admin", "aicte", "reviewing_officer", "unit_head"],
     },
     {
         category: "Core Processing",
@@ -69,7 +76,7 @@ const navItems = [
         href: "/aicte/applications",
         icon: FileText,
         badge: "Active",
-        roles: ["regional_officer", "bureau_officer", "scrutiny_committee", "evc_coordinator", "competent_authority", "admin"],
+        roles: ["regional_officer", "bureau_officer", "scrutiny_committee", "evc_coordinator", "competent_authority", "admin", "super_admin", "aicte", "reviewing_officer", "unit_head"],
     },
     {
         category: "Core Processing",

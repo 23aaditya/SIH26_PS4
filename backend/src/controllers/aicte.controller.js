@@ -775,11 +775,20 @@ export const aicteController = {
       const app = await prisma.application.findUnique({ where: { id } });
       if (!app) return res.status(404).json({ error: "Application not found." });
 
-      const wfInstance = await workflowInstanceService.getForApplication(id);
-      if (!wfInstance) return res.status(400).json({ error: "Workflow instance not found. Application may not have been submitted yet." });
+      let wfInstance = await workflowInstanceService.getForApplication(id);
+      if (!wfInstance) {
+        wfInstance = await workflowInstanceService.initializeForApplication(app);
+      }
 
-      const currentStage = wfInstance.stages.find(s => s.stageKey === wfInstance.currentStageKey && !["COMPLETED", "SKIPPED"].includes(s.stageStatus));
-      if (!currentStage) return res.status(400).json({ error: "No active stage found to forward." });
+      let currentStage = wfInstance.stages.find(
+        (s) => s.stageKey === wfInstance.currentStageKey && !["COMPLETED", "SKIPPED"].includes(s.stageStatus)
+      );
+      if (!currentStage) {
+        currentStage = wfInstance.stages.find((s) => !["COMPLETED", "SKIPPED"].includes(s.stageStatus));
+      }
+      if (!currentStage) {
+        return res.status(400).json({ error: "All stages have already been completed for this application." });
+      }
 
       const template = resolveWorkflowTemplate(wfInstance.workflowTemplateKey);
       const stageDef = getStageFromTemplate(template, currentStage.stageKey);
@@ -792,10 +801,21 @@ export const aicteController = {
       }
 
       const result = await workflowInstanceService.recordStageDecision(
-        id, currentStage.id, chosenOutcome, reason || "Advanced by officer", null, req.user
+        id, currentStage.id, chosenOutcome, reason || "Advanced by officer to next regulatory level", null, req.user
       );
 
-      res.json({ success: true, ...result });
+      // Re-fetch fresh application with all includes
+      const freshApp = await prisma.application.findUnique({
+        where: { id },
+        include: APPLICATION_INCLUDES,
+      });
+
+      res.json({
+        success: true,
+        ...result,
+        application: formatApp(freshApp),
+        message: `Application passed to next level successfully.`,
+      });
     } catch (err) {
       next(err);
     }
@@ -1007,22 +1027,34 @@ export const aicteController = {
       const app = await prisma.application.findUnique({ where: { id } });
       if (!app) return res.status(404).json({ error: "Application not found." });
 
-      if (app.status !== "rejected") {
-        return res.status(400).json({ error: "Appeals can only be filed against rejected applications." });
+      const isScrutinyGrievance =
+        appealType === "GRIEVANCE_SCRUTINY" ||
+        appealType === "GRIEVANCE" ||
+        app.status === "awaiting_institution" ||
+        app.status === "deficiency_raised" ||
+        app.currentStageId === "clarification" ||
+        app.currentStageId === "scrutiny";
+
+      if (app.status !== "rejected" && !isScrutinyGrievance) {
+        return res.status(400).json({
+          error: "Appeals can be filed against rejected applications or as a grievance against scrutiny non-acceptance / deficiency notices.",
+        });
       }
 
-      // Check appeal deadline
+      // Check appeal deadline (only if official decision was recorded)
       const decision = await prisma.applicationDecision.findUnique({ where: { applicationId: id } });
       if (decision?.appealDeadline && new Date() > new Date(decision.appealDeadline)) {
         return res.status(400).json({ error: "Appeal deadline has passed." });
       }
+
+      const effectiveAppealType = appealType || (isScrutinyGrievance ? "GRIEVANCE_SCRUTINY" : "SAC_APPEAL");
 
       const appeal = await prisma.appeal.create({
         data: {
           applicationId: id,
           originalDecisionId: decision?.id || null,
           appellantId: req.user.id,
-          appealType: appealType || "SAC_APPEAL",
+          appealType: effectiveAppealType,
           groundsText: groundsText.trim(),
           status: "FILED",
         },
@@ -1033,7 +1065,7 @@ export const aicteController = {
           applicationId: id,
           actorUserId: req.user.id,
           actorRole: req.user.role || "institution",
-          action: "APPEAL_FILED",
+          action: isScrutinyGrievance ? "GRIEVANCE_RAISED" : "APPEAL_FILED",
           reason: groundsText.trim(),
         },
       });

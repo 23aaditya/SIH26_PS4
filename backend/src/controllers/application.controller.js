@@ -96,6 +96,16 @@ export const applicationController = {
           deficiencies: {
             where: { status: "pending" },
           },
+          workflowInstance: {
+            include: {
+              stages: {
+                include: { assignedStaff: true },
+              },
+            },
+          },
+          appeals: {
+            orderBy: { createdAt: "desc" },
+          },
         },
       });
 
@@ -156,6 +166,21 @@ export const applicationController = {
               evidence: { include: { document: true } },
             },
             orderBy: { createdAt: "desc" },
+          },
+          appeals: {
+            orderBy: { createdAt: "desc" },
+          },
+          decision: true,
+          workflowInstance: {
+            include: {
+              stages: {
+                orderBy: { sequenceOrder: "asc" },
+                include: {
+                  assignedStaff: { select: { id: true, name: true, employeeCode: true, email: true, role: true } },
+                  reports: true,
+                },
+              },
+            },
           },
         },
       });
@@ -447,6 +472,89 @@ export const applicationController = {
       );
 
       res.json({ success: true, application: updated });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async raiseGrievance(req, res, next) {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+      const { groundsText, category, grievanceType } = req.body;
+
+      if (!groundsText || !groundsText.trim()) {
+        return res.status(400).json({ error: "Grievance explanation text is required" });
+      }
+
+      const application = await prisma.application.findUnique({
+        where: { id },
+      });
+      if (!application) {
+        return res.status(404).json({ error: "Application not found" });
+      }
+
+      if (
+        req.user.accountType === "institution" &&
+        req.user.institutionId &&
+        req.user.institutionId !== application.institutionId
+      ) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const appeal = await prisma.appeal.create({
+        data: {
+          applicationId: id,
+          appellantId: req.user.id,
+          appealType: grievanceType || "GRIEVANCE_SCRUTINY",
+          groundsText: category ? `[${category}] ${groundsText.trim()}` : groundsText.trim(),
+          status: "FILED",
+        },
+      });
+
+      await prisma.auditEvent.create({
+        data: {
+          applicationId: id,
+          actorUserId: req.user.id,
+          actorRole: req.user.role || "institution",
+          action: "GRIEVANCE_RAISED",
+          reason: `Institutional grievance lodged against scrutiny findings: ${groundsText.trim().slice(0, 150)}`,
+        },
+      });
+
+      // Update application stage action history if workflow instance exists
+      const wfInstance = await prisma.workflowInstance.findUnique({
+        where: { applicationId: id },
+        include: { stages: true },
+      });
+      if (wfInstance) {
+        const activeStage = wfInstance.stages.find(
+          (s) => s.stageKey === wfInstance.currentStageKey
+        ) || wfInstance.stages[0];
+        if (activeStage) {
+          await prisma.stageActionHistory.create({
+            data: {
+              stageInstanceId: activeStage.id,
+              applicationId: id,
+              action: "GRIEVANCE_FILED",
+              actorUserId: req.user.id,
+              actorRole: "institution",
+              previousStatus: activeStage.stageStatus,
+              newStatus: activeStage.stageStatus,
+              comments: `Grievance submitted by institution: ${groundsText.trim().slice(0, 150)}`,
+            },
+          });
+        }
+      }
+
+      res.status(201).json({
+        success: true,
+        appeal,
+        message: "Grievance successfully registered with AICTE committee.",
+      });
     } catch (error) {
       next(error);
     }

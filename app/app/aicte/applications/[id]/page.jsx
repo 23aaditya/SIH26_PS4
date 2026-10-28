@@ -14,7 +14,10 @@ import { WorkflowStepper, AuditTimeline } from "@/components/shared/WorkflowTime
 import { Dialog } from "@/components/ui/dialog";
 import { dataService } from "@/lib/dataService";
 import { APPLICATION_CATEGORY_LABELS, ROLE_LABELS, } from "@/lib/types";
-import { FileText, Building2, CheckCircle2, ArrowLeft, ShieldCheck, Eye, UserCheck, Calendar, RotateCcw, Check, Sparkles, Bot, RefreshCw, AlertTriangle, AlertCircle } from "lucide-react";
+import { FileText, Building2, CheckCircle2, ArrowLeft, ShieldCheck, Eye, UserCheck, Calendar, RotateCcw, Check, Sparkles, Bot, RefreshCw, AlertTriangle, AlertCircle, ArrowRightCircle, ArrowRight, CornerDownRight, User, MessageSquare } from "lucide-react";
+import { ApplicationTeamWidget } from "@/components/aicte/ApplicationTeamWidget";
+import { ApplicationCommunicationPanel } from "@/components/aicte/ApplicationCommunicationPanel";
+import { DelegationModal } from "@/components/aicte/DelegationModal";
 
 function AiExecutiveSummary({ content, outcome, versionHash }) {
   if (!content) return null;
@@ -104,6 +107,166 @@ const AICTE_ROLES = [
     "competent_authority",
     "admin",
 ];
+
+const KNOWN_OFFICERS = {
+  "DEMO-AIC-034": {
+    name: "Dr. R. K. Sharma",
+    code: "DEMO-AIC-034",
+    role: "Scrutiny Committee Member",
+    bureau: "Approval Bureau (Western/Northern)",
+  },
+  "DEMO-AIC-037": {
+    name: "Dr. Neha Rao",
+    code: "DEMO-AIC-037",
+    role: "EVC Inspection Coordinator",
+    bureau: "Regional Inspection Committee",
+  },
+  "DEMO-AIC-013": {
+    name: "Shri Karan Sinha",
+    code: "DEMO-AIC-013",
+    role: "Regional Officer / Bureau Officer",
+    bureau: "Standing Hearing & Approval Bureau",
+  },
+  "DEMO-AIC-001": {
+    name: "Super Administrator",
+    code: "DEMO-AIC-001",
+    role: "AICTE Headquarter Executive",
+    bureau: "Central Governance Council",
+  },
+};
+
+function getWorkingOfficer(app, userProfile) {
+  if (!app) return null;
+  // 1. Check active stage in workflowInstance
+  if (app.workflowInstance?.stages) {
+    const activeStage =
+      app.workflowInstance.stages.find(
+        (s) =>
+          (s.stageKey === app.currentStageId || s.stageKey === app.workflowInstance?.currentStageKey) &&
+          !["COMPLETED", "SKIPPED"].includes(s.stageStatus)
+      ) ||
+      app.workflowInstance.stages.find(
+        (s) => s.stageStatus === "ASSIGNED" || s.stageStatus === "IN_PROGRESS"
+      );
+
+    if (activeStage?.assignedStaff) {
+      return {
+        name: activeStage.assignedStaff.name,
+        code: activeStage.assignedStaff.employeeCode || activeStage.assignedStaff.id,
+        role: activeStage.assignedStaff.role || activeStage.stageName,
+        stage: activeStage.stageName,
+        bureau: "AICTE Regulatory Cell",
+      };
+    }
+  }
+
+  // 2. Check assignedUserId in known officers
+  if (app.assignedUserId && KNOWN_OFFICERS[app.assignedUserId]) {
+    return {
+      ...KNOWN_OFFICERS[app.assignedUserId],
+      stage: app.currentStageName || "Current Processing Stage",
+    };
+  }
+
+  // 3. Fallback based on stage ID
+  if (app.currentStageId === "scrutiny" || app.status === "in_review") {
+    return {
+      ...KNOWN_OFFICERS["DEMO-AIC-034"],
+      stage: app.currentStageName || "Scrutiny Committee Review",
+    };
+  } else if (app.currentStageId === "evc" || app.status === "pending_evc") {
+    return {
+      ...KNOWN_OFFICERS["DEMO-AIC-037"],
+      stage: app.currentStageName || "Expert Visit Committee (EVC)",
+    };
+  } else if (app.currentStageId === "committee" || app.currentStageId === "decision") {
+    return {
+      ...KNOWN_OFFICERS["DEMO-AIC-013"],
+      stage: app.currentStageName || "Standing Hearing Committee",
+    };
+  }
+
+  return {
+    name: userProfile?.name || "Dr. R. K. Sharma",
+    code: app.assignedUserId || userProfile?.employeeCode || "DEMO-AIC-034",
+    role: app.currentAssigneeRole?.replace(/_/g, " ").toUpperCase() || "Scrutiny Committee Officer",
+    stage: app.currentStageName || "Under Review",
+    bureau: `${app.regionId || "Western"} Regional Bureau`,
+  };
+}
+
+function getNextLevelInfo(app) {
+  if (!app) {
+    return {
+      stageId: "evc",
+      stageName: "Expert Visit Committee (EVC)",
+      assignedRole: "evc_coordinator",
+      assignedOfficer: "Dr. Neha Rao (DEMO-AIC-037)",
+      description: "Inspection of physical and academic infrastructure.",
+    };
+  }
+
+  const currentKey = app.currentStageId || "scrutiny";
+
+  if (currentKey === "verification") {
+    return {
+      stageId: "scrutiny",
+      stageName: "Scrutiny Committee Review",
+      assignedRole: "scrutiny_committee",
+      assignedOfficer: "Dr. R. K. Sharma (DEMO-AIC-034 • Scrutiny Officer)",
+      description: "Statutory review of self-disclosure documents and institutional data.",
+    };
+  }
+
+  if (currentKey === "scrutiny" || currentKey === "re_scrutiny") {
+    if (app.requiresEvc) {
+      return {
+        stageId: "evc",
+        stageName: "Expert Visit Committee (EVC) Inspection",
+        assignedRole: "evc_coordinator",
+        assignedOfficer: "Dr. Neha Rao (DEMO-AIC-037 • EVC Coordinator)",
+        description: "On-site physical/virtual infrastructure inspection and land norms validation.",
+      };
+    } else {
+      return {
+        stageId: "committee",
+        stageName: "Standing Hearing Committee (SHC) Review",
+        assignedRole: "bureau_officer",
+        assignedOfficer: "Shri Karan Sinha (DEMO-AIC-013 • Bureau Officer)",
+        description: "Evaluation of compliance recommendations and hearing proceedings.",
+      };
+    }
+  }
+
+  if (currentKey === "evc") {
+    return {
+      stageId: "committee",
+      stageName: "Standing Hearing Committee (SHC) Review",
+      assignedRole: "bureau_officer",
+      assignedOfficer: "Shri Karan Sinha (DEMO-AIC-013 • Bureau Officer)",
+      description: "Review of inspection report and recommendation formulation.",
+    };
+  }
+
+  if (currentKey === "committee") {
+    return {
+      stageId: "decision",
+      stageName: "Executive Committee Final Decision",
+      assignedRole: "competent_authority",
+      assignedOfficer: "Executive Committee / Competent Authority (DEMO-AIC-013)",
+      description: "Issuance of formal AICTE approval order (EoA / LoA).",
+    };
+  }
+
+  return {
+    stageId: "decision",
+    stageName: "Executive Committee Final Decision",
+    assignedRole: "competent_authority",
+    assignedOfficer: "Competent Authority Panel",
+    description: "Final statutory sealing of decision.",
+  };
+}
+
 function CaseReviewContent() {
     const params = useParams();
     const router = useRouter();
@@ -113,6 +276,8 @@ function CaseReviewContent() {
     const [docs, setDocs] = useState([]);
     const [auditEvents, setAuditEvents] = useState([]);
     const [activeTab, setActiveTab] = useState("overview");
+    const [commsRecipient, setCommsRecipient] = useState(null);
+    const [isDelegationOpen, setIsDelegationOpen] = useState(false);
     // Modals state
     const [showClarifyModal, setShowClarifyModal] = useState(false);
     const [showAdvanceModal, setShowAdvanceModal] = useState(false);
@@ -131,6 +296,7 @@ function CaseReviewContent() {
     const [reports, setReports] = useState([]);
     const [triggeringAi, setTriggeringAi] = useState(false);
     const [selectedRole, setSelectedRole] = useState("scrutiny_committee");
+    const [submittingAdvance, setSubmittingAdvance] = useState(false);
     const [notificationBanner, setNotificationBanner] = useState(null);
     const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api";
 
@@ -235,6 +401,8 @@ function CaseReviewContent() {
       </div>);
     }
     const institution = app.institution || dataService.getInstitutionById(app.institutionId);
+    const workingOfficer = getWorkingOfficer(app, userProfile);
+    const nextLevel = getNextLevelInfo(app);
     const aiReport = reports.find((r) => r.reportType === "AI_SCRUTINY_PRE_CHECK");
   let aiMeta = null;
   if (aiReport?.metadataJson) {
@@ -306,17 +474,62 @@ function CaseReviewContent() {
         setNotificationBanner("Deficiency letter successfully issued to institution. Status updated to 'Awaiting Institution'.");
         reloadData();
     };
-    // 2. Action: Complete Review / Advance Stage
-    const handleAdvanceStage = () => {
+    // 2. Action: Complete Review & Pass Application to Next Level
+    const handleAdvanceStage = async () => {
+        setSubmittingAdvance(true);
+        const nextInfo = getNextLevelInfo(app);
+        try {
+            const res = await fetch(`${API_BASE}/aicte/applications/${app.id}/forward`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "x-user-id": userProfile?.uid || userProfile?.employeeCode || "DEMO-AIC-034",
+                },
+                credentials: "include",
+                body: JSON.stringify({
+                    outcome: "PASS",
+                    reason: advanceReason || `Scrutiny observations completed and found satisfactory. Passing case to ${nextInfo.stageName}.`,
+                }),
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                setShowAdvanceModal(false);
+                setAdvanceReason("");
+                setNotificationBanner({
+                    type: "success",
+                    message: `Application ${app.applicationNumber} successfully passed to next level: ${data.application?.currentStageName || nextInfo.stageName}. Assigned to ${nextInfo.assignedOfficer}.`,
+                });
+                await reloadData();
+                setSubmittingAdvance(false);
+                return;
+            }
+        } catch (err) {
+            console.warn("Backend forward API error, using fallback:", err);
+        }
+
+        // Local dataService fallback
         const isNextEvc = app.requiresEvc && app.currentStageId === "scrutiny";
         const nextStageId = isNextEvc ? "evc_evaluation" : "standing_hearing_committee";
         const nextStageName = isNextEvc ? "Expert Visiting Committee (EVC)" : "Standing Hearing Committee Review";
         const nextRole = isNextEvc ? "evc_coordinator" : "bureau_officer";
-        dataService.advanceStage(app.id, nextStageId, nextStageName, nextRole, isNextEvc ? "pending_evc" : "awaiting_committee", advanceReason || "Scrutiny observations satisfactory. Recommending for next regulatory stage.", { uid: userProfile?.uid || "aicte-ro-west", role: userProfile?.role || "regional_officer" });
+        dataService.advanceStage(
+            app.id,
+            nextStageId,
+            nextStageName,
+            nextRole,
+            isNextEvc ? "pending_evc" : "awaiting_committee",
+            advanceReason || "Scrutiny observations satisfactory. Recommending for next regulatory stage.",
+            { uid: userProfile?.uid || "DEMO-AIC-034", role: userProfile?.role || "scrutiny_committee" }
+        );
         setShowAdvanceModal(false);
         setAdvanceReason("");
-        setNotificationBanner(`Application advanced to stage: ${nextStageName}`);
+        setNotificationBanner({
+            type: "success",
+            message: `Application advanced to next level: ${nextStageName} (Assigned to: ${nextInfo.assignedOfficer})`,
+        });
         reloadData();
+        setSubmittingAdvance(false);
     };
     // 3. Action: Schedule EVC
     const handleScheduleEvc = () => {
@@ -403,6 +616,10 @@ function CaseReviewContent() {
 
         {/* Action Bar (Top Right) */}
         <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => setIsDelegationOpen(true)} className="text-xs text-blue-800 border-blue-300 hover:bg-blue-50">
+            <UserCheck className="h-3.5 w-3.5 mr-1 text-blue-600"/> Delegate Task
+          </Button>
+
           <Button variant="outline" size="sm" onClick={() => setShowAssignModal(true)} className="text-xs text-slate-700">
             <UserCheck className="h-3.5 w-3.5 mr-1"/> Reassign
           </Button>
@@ -415,8 +632,13 @@ function CaseReviewContent() {
               <Calendar className="h-3.5 w-3.5 mr-1 text-purple-600"/> Schedule EVC
             </Button>)}
 
-          <Button variant="outline" size="sm" onClick={() => setShowAdvanceModal(true)} className="text-xs text-blue-700 border-blue-300 hover:bg-blue-50">
-            <CheckCircle2 className="h-3.5 w-3.5 mr-1 text-blue-600"/> Advance Stage
+          <Button
+            size="sm"
+            onClick={() => setShowAdvanceModal(true)}
+            className="text-xs bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-xs flex items-center gap-1.5"
+          >
+            <ArrowRightCircle className="h-3.5 w-3.5 text-blue-100" />
+            Send to Next Level ({nextLevel.stageName.split(" ")[0]}...)
           </Button>
 
           <Button size="sm" onClick={() => setShowDecisionModal(true)} className="text-xs bg-slate-900 hover:bg-slate-800 text-white font-semibold shadow-xs">
@@ -448,7 +670,7 @@ function CaseReviewContent() {
         </div>
       )}
 
-      {/* Case Header Strip (Jira Detail Banner) */}
+      {/* Case Header Strip (Jira Detail Banner with Active Officer & Pipeline) */}
       <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-2xs">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div>
@@ -463,28 +685,45 @@ function CaseReviewContent() {
               {APPLICATION_CATEGORY_LABELS[app.applicationCategory]} — Case Review
             </h1>
             <p className="text-xs text-slate-600 mt-0.5">
-              Current Stage: <strong className="text-slate-900">{app.currentStageName}</strong>
+              Current Stage: <strong className="text-slate-900">{app.currentStageName || "Scrutiny Review"}</strong>
             </p>
           </div>
 
-          <div className="flex items-center gap-6 border-t lg:border-t-0 lg:border-l border-slate-200 pt-3 lg:pt-0 lg:pl-6">
+          <div className="flex flex-wrap items-center gap-6 border-t lg:border-t-0 lg:border-l border-slate-200 pt-3 lg:pt-0 lg:pl-6">
+            {/* Working Officer */}
+            <div className="min-w-[140px]">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1">
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                Working Officer
+              </p>
+              <p className="text-xs font-bold text-slate-900 mt-0.5 flex items-center gap-1">
+                {workingOfficer?.name}
+                <span className="text-[9px] font-mono px-1 py-0.2 bg-slate-100 rounded text-slate-600 border border-slate-200">
+                  {workingOfficer?.code}
+                </span>
+              </p>
+              <p className="text-[10px] text-slate-500 truncate max-w-[170px]">{workingOfficer?.role}</p>
+            </div>
+
+            {/* Next Level Target */}
+            <div className="min-w-[140px]">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-blue-700 flex items-center gap-1">
+                <ArrowRight className="h-2.5 w-2.5" /> Next Level
+              </p>
+              <p className="text-xs font-bold text-blue-900 mt-0.5 truncate max-w-[180px]">
+                {nextLevel.stageName}
+              </p>
+              <p className="text-[10px] text-slate-500 truncate max-w-[170px]">{nextLevel.assignedOfficer}</p>
+            </div>
+
+            {/* Regulatory SLA */}
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-600">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
                 Regulatory SLA Window
               </p>
               <div className="mt-0.5">
                 <SlaCountdown dueAt={app.dueAt}/>
               </div>
-            </div>
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-600">
-                Assigned Role
-              </p>
-              <p className="text-xs font-semibold text-slate-900 mt-0.5">
-                {app.currentAssigneeRole
-            ? app.currentAssigneeRole.replace(/_/g, " ").toUpperCase()
-            : "Finalized"}
-              </p>
             </div>
           </div>
         </div>
@@ -492,6 +731,16 @@ function CaseReviewContent() {
 
       {/* Workflow Progress Stepper */}
       <WorkflowStepper currentStageId={app.currentStageId} status={app.status} requiresEvc={app.requiresEvc}/>
+
+      {/* Application Case Team Hierarchy */}
+      <ApplicationTeamWidget
+        applicationId={app.id}
+        onOpenMessage={(contact) => {
+          setCommsRecipient(contact);
+          setActiveTab("communication");
+        }}
+        onOpenDelegate={() => setIsDelegationOpen(true)}
+      />
 
       {/* Main 2-Column Inspector Layout (Jira Style) */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -502,6 +751,12 @@ function CaseReviewContent() {
             {[
               { id: "overview", label: "Dossier & Intake" },
               { id: "documents", label: `Documents (${docs.length})` },
+              {
+                id: "communication",
+                label: "Communication & Team",
+                badgeText: "Connected",
+                badgeColor: "bg-blue-100 text-blue-800 border-blue-200",
+              },
               {
                 id: "ai_scrutiny",
                 label: "AI Scrutiny & Pre-Check",
@@ -587,6 +842,15 @@ function CaseReviewContent() {
                 )}
               </CardContent>
             </Card>)}
+
+          {/* Tab: Communication & Case Team */}
+          {activeTab === "communication" && (
+            <ApplicationCommunicationPanel
+              applicationId={app.id}
+              initialRecipient={commsRecipient}
+              onClearInitialRecipient={() => setCommsRecipient(null)}
+            />
+          )}
 
           {/* Tab 2: Document Verification Matrix (Interactive!) */}
           {activeTab === "documents" && (<Card className="border border-slate-200/90 shadow-2xs bg-white">
@@ -1114,22 +1378,86 @@ function CaseReviewContent() {
         </div>
       </Dialog>
 
-      {/* 2. Advance Stage Dialog */}
-      <Dialog open={showAdvanceModal} onOpenChange={setShowAdvanceModal} title="Advance Workflow Stage" description={`Confirm progression of ${app.applicationNumber} to next regulatory phase`}>
+      {/* 2. Send Application to Next Level Dialog */}
+      <Dialog
+        open={showAdvanceModal}
+        onOpenChange={setShowAdvanceModal}
+        title="Pass Application to Next Level"
+        description={`Formal regulatory stage forwarding for ${app.applicationNumber}`}
+      >
         <div className="space-y-4 text-xs">
+          {/* Level Transition Visual Card */}
+          <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* Current Level Box */}
+              <div className="p-3 bg-white rounded-lg border border-slate-200 shadow-2xs">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1">
+                  Current Level (Being Completed)
+                </span>
+                <p className="font-bold text-slate-900 text-xs">
+                  {app.currentStageName || "Scrutiny Committee Review"}
+                </p>
+                <div className="mt-2 flex items-center gap-1.5 text-[11px] text-slate-600">
+                  <User className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                  <span>{workingOfficer?.name}</span>
+                  <span className="font-mono text-[9px] bg-slate-100 px-1 rounded text-slate-500 border border-slate-200">
+                    {workingOfficer?.code}
+                  </span>
+                </div>
+              </div>
+
+              {/* Next Level Box */}
+              <div className="p-3 bg-blue-50/60 rounded-lg border border-blue-200 shadow-2xs">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-blue-700 block mb-1">
+                  Next Level (Target Destination)
+                </span>
+                <p className="font-bold text-blue-950 text-xs">
+                  {nextLevel.stageName}
+                </p>
+                <div className="mt-2 flex items-center gap-1.5 text-[11px] text-blue-800">
+                  <UserCheck className="h-3.5 w-3.5 text-blue-600 shrink-0" />
+                  <span className="font-semibold">{nextLevel.assignedOfficer}</span>
+                </div>
+              </div>
+            </div>
+
+            <p className="text-[11px] text-slate-500 leading-relaxed border-t border-slate-200/60 pt-2">
+              <strong>Mandate:</strong> {nextLevel.description}
+            </p>
+          </div>
+
           <div>
             <Label className="font-semibold text-slate-800 block mb-1">
-              Officer Scrutiny Observation & Recommendation Endorsement
+              Officer Scrutiny Observation & Handover Recommendation Endorsement *
             </Label>
-            <Textarea rows={3} value={advanceReason} onChange={(e) => setAdvanceReason(e.target.value)} placeholder="All primary documents scrutinized and verified against statutory criteria..." className="text-xs"/>
+            <Textarea
+              rows={3}
+              value={advanceReason}
+              onChange={(e) => setAdvanceReason(e.target.value)}
+              placeholder="e.g. Scrutiny observations completed. All primary statutory documents verified against AICTE APH Chapter I/II norms. Passing application to next level for further evaluation."
+              className="text-xs"
+            />
           </div>
 
           <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
-            <Button variant="ghost" size="sm" onClick={() => setShowAdvanceModal(false)}>
+            <Button variant="ghost" size="sm" onClick={() => setShowAdvanceModal(false)} disabled={submittingAdvance}>
               Cancel
             </Button>
-            <Button size="sm" onClick={handleAdvanceStage} className="bg-blue-600 text-white">
-              Confirm & Advance Case
+            <Button
+              size="sm"
+              onClick={handleAdvanceStage}
+              disabled={submittingAdvance}
+              className="bg-blue-600 hover:bg-blue-700 text-white font-semibold flex items-center gap-1.5"
+            >
+              {submittingAdvance ? (
+                <>
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin" /> Passing to Next Level...
+                </>
+              ) : (
+                <>
+                  <ArrowRightCircle className="h-3.5 w-3.5" /> Confirm & Pass to {nextLevel.stageName.split(" ")[0]}
+                </>
+              )}
             </Button>
           </div>
         </div>
@@ -1235,6 +1563,22 @@ function CaseReviewContent() {
           </div>
         </div>
       </Dialog>
+
+      {/* 6. Temporary Work Delegation Modal */}
+      {isDelegationOpen && (
+        <DelegationModal
+          isOpen={isDelegationOpen}
+          onClose={() => setIsDelegationOpen(false)}
+          application={app}
+          onSuccess={() => {
+            reloadData();
+            setNotificationBanner({
+              type: "success",
+              message: "Work delegation created successfully and notification sent to colleague.",
+            });
+          }}
+        />
+      )}
     </div>);
 }
 export default function CaseReviewPage() {

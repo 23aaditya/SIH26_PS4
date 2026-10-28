@@ -1,41 +1,42 @@
 "use client";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { RequireRole } from "@/components/guards/RequireAuth";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { StatusBadge, SlaCountdown } from "@/components/shared/StatusBadge";
-import { dataService, API_BASE } from "@/lib/dataService";
-import { APPLICATION_CATEGORY_LABELS, ROLE_LABELS } from "@/lib/types";
-import { StaffManagementModule } from "@/components/aicte/StaffManagementModule";
+import { API_BASE } from "@/lib/dataService";
+import { DelegationModal } from "@/components/aicte/DelegationModal";
+import { AvailabilityModal } from "@/components/aicte/AvailabilityModal";
 import {
   FileText,
   Clock,
   AlertTriangle,
-  CalendarDays,
   Users,
   Search,
-  ChevronRight,
   ShieldCheck,
   Building,
   Briefcase,
+  CheckCircle2,
+  Network,
+  UserCheck,
+  Bell,
+  ArrowRight,
+  Loader2,
+  Calendar,
   Layers,
   Sparkles,
-  Gavel,
-  CheckCircle,
-  Eye,
-  CheckCircle2,
+  Inbox,
+  AlertCircle,
+  ArrowUpRight,
+  Check,
+  SlidersHorizontal,
+  ArrowUpDown,
+  ChevronRight,
+  Activity,
+  Zap,
 } from "lucide-react";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  Cell,
-} from "recharts";
 
 const AICTE_ROLES = [
   "regional_officer",
@@ -53,191 +54,276 @@ const AICTE_ROLES = [
   "support_staff",
 ];
 
+function getGreeting() {
+  const hour = new Date().getHours();
+  if (hour < 12) return "Good morning";
+  if (hour < 17) return "Good afternoon";
+  return "Good evening";
+}
+
+// Visual 4-Stage Funnel for Regulatory Milestones
+const FUNNEL_STAGES = [
+  { step: 1, key: "SCRUTINY", label: "Scrutiny" },
+  { step: 2, key: "EVC", label: "EVC Visit" },
+  { step: 3, key: "SHC", label: "Hearing (SHC)" },
+  { step: 4, key: "COUNCIL", label: "Council Order" },
+];
+
+function getStageStep(stageName = "") {
+  const s = (stageName || "").toUpperCase();
+  if (s.includes("SCRUTINY") || s.includes("DOCUMENT")) return 1;
+  if (s.includes("EVC") || s.includes("VISIT") || s.includes("INSPECTION")) return 2;
+  if (s.includes("HEARING") || s.includes("SHC") || s.includes("SAC")) return 3;
+  if (s.includes("COUNCIL") || s.includes("APPROVAL") || s.includes("ISSUANCE") || s.includes("DECISION")) return 4;
+  return 1;
+}
+
 function AicteDashboardContent() {
-  const { userProfile, switchWorkspace, activeWorkspace, dashboardModules } = useAuth();
-  const [dashboardData, setDashboardData] = useState(null);
+  const { userProfile, switchWorkspace, activeWorkspace } = useAuth();
+
+  // State
+  const [summary, setSummary] = useState(null);
+  const [workList, setWorkList] = useState({ items: [], total: 0, type: "applications" });
+  const [priorityItems, setPriorityItems] = useState([]);
+  const [teamWorkload, setTeamWorkload] = useState(null);
+  const [workTreeSnippet, setWorkTreeSnippet] = useState(null);
+  const [availability, setAvailability] = useState(null);
+
+  const [activeTab, setActiveTab] = useState("all");
+  const [priorityFilter, setPriorityFilter] = useState("ALL");
+  const [sortBy, setSortBy] = useState("sla");
+  const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    let isMounted = true;
-    async function fetchMetrics() {
-      try {
-        setLoading(true);
-        const res = await fetch(`${API_BASE}/aicte/dashboard/metrics`, {
-          headers: {
-            "x-user-id": userProfile?.employeeCode || userProfile?.uid || "DEMO-AIC-034",
-          },
-          credentials: "include",
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (isMounted) setDashboardData(data);
-        }
-      } catch (err) {
-        console.warn("Failed to fetch live AICTE dashboard metrics:", err);
-      } finally {
-        if (isMounted) setLoading(false);
+  // Modals
+  const [isDelegationOpen, setIsDelegationOpen] = useState(false);
+  const [selectedAppForDelegation, setSelectedAppForDelegation] = useState(null);
+  const [isAvailabilityOpen, setIsAvailabilityOpen] = useState(false);
+
+  const officerCode = userProfile?.employeeCode || userProfile?.uid || "DEMO-AIC-034";
+  const firstName = userProfile?.name ? userProfile.name.split(" ")[0] : "Officer";
+
+  // Fetch summary and priority work
+  const loadDashboardData = async () => {
+    try {
+      setLoading(true);
+      const headers = {
+        "x-user-id": officerCode,
+      };
+
+      const [summaryRes, priorityRes, treeRes, workloadRes, availRes] = await Promise.all([
+        fetch(`${API_BASE}/aicte/my-work/summary`, { headers, credentials: "include" }),
+        fetch(`${API_BASE}/aicte/my-work?filter=priority`, { headers, credentials: "include" }),
+        fetch(`${API_BASE}/aicte/work-tree`, { headers, credentials: "include" }),
+        fetch(`${API_BASE}/aicte/team-workload`, { headers, credentials: "include" }),
+        fetch(`${API_BASE}/aicte/availability`, { headers, credentials: "include" }),
+      ]);
+
+      if (summaryRes.ok) {
+        const sumData = await summaryRes.json();
+        setSummary(sumData);
       }
+
+      if (priorityRes.ok) {
+        const pData = await priorityRes.json();
+        setPriorityItems(pData.items || []);
+      }
+
+      if (treeRes.ok) {
+        const tData = await treeRes.json();
+        setWorkTreeSnippet(tData);
+      }
+
+      if (workloadRes.ok) {
+        const wData = await workloadRes.json();
+        setTeamWorkload(wData);
+      }
+
+      if (availRes.ok) {
+        const aData = await availRes.json();
+        setAvailability(aData);
+      }
+    } catch (err) {
+      console.warn("Failed to fetch dashboard data:", err);
+    } finally {
+      setLoading(false);
     }
-    fetchMetrics();
-    return () => { isMounted = false; };
+  };
+
+  // Fetch work list for active tab
+  const loadWorkList = async (tab) => {
+    try {
+      const headers = { "x-user-id": officerCode };
+      const res = await fetch(`${API_BASE}/aicte/my-work?filter=${tab}`, { headers, credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        setWorkList(data);
+      }
+    } catch (err) {
+      console.warn("Failed to load work list:", err);
+    }
+  };
+
+  useEffect(() => {
+    loadDashboardData();
   }, [userProfile]);
 
-  const allApps = dataService.getApplications();
-  const evcVisits = dataService.getEvcVisits();
+  useEffect(() => {
+    loadWorkList(activeTab);
+  }, [activeTab, userProfile]);
 
-  // Role detection
-  const userRole = userProfile?.role || "scrutiny_committee";
-  const platformRoles = userProfile?.platformRoles || [];
-  const isScrutinyOfficer = userRole === "scrutiny_committee" || platformRoles.includes("SCRUTINY_OFFICER");
-  const isEvcCoordinator = userRole === "evc_coordinator" || platformRoles.includes("EVC_COORDINATOR");
-  const isCompetentAuthority = userRole === "competent_authority" || platformRoles.includes("COMPETENT_AUTHORITY");
-  const isSuperAdmin = userRole === "super_admin" || userRole === "admin" || platformRoles.includes("SUPER_ADMIN");
+  const handleCardClick = (targetTab) => {
+    setActiveTab(targetTab);
+  };
 
-  const liveKpis = dashboardData?.kpis;
-  const totalActiveVal = liveKpis ? liveKpis.totalActive : allApps.filter((a) => a.status !== "approved" && a.status !== "rejected").length;
-  const inScrutinyVal = liveKpis ? liveKpis.inScrutiny : allApps.filter((a) => a.currentStageId === "scrutiny").length;
-  const clarificationVal = liveKpis ? liveKpis.awaitingInstitution : allApps.filter((a) => a.status === "awaiting_institution").length;
-  const evcVal = liveKpis ? liveKpis.pendingEvc : allApps.filter((a) => a.status === "pending_evc").length;
-  const committeeVal = liveKpis ? liveKpis.awaitingCommittee : allApps.filter((a) => a.status === "awaiting_committee").length;
-  const overdueVal = liveKpis ? liveKpis.overdueCount : allApps.filter((a) => a.dueAt && new Date(a.dueAt).getTime() < Date.now()).length;
+  const handleOpenDelegation = (app = null) => {
+    setSelectedAppForDelegation(app);
+    setIsDelegationOpen(true);
+  };
 
-  const activeModules = dashboardModules || [];
+  // Filtered and sorted work list items
+  const filteredItems = useMemo(() => {
+    let items = workList.items || [];
+
+    // Priority filter (for application lists)
+    if (priorityFilter !== "ALL" && workList.type !== "delegations") {
+      items = items.filter((item) => item.priority === priorityFilter);
+    }
+
+    // Search query
+    if (searchQuery.trim()) {
+      const term = searchQuery.toLowerCase().trim();
+      items = items.filter(
+        (item) =>
+          item.applicationNumber?.toLowerCase().includes(term) ||
+          item.institutionName?.toLowerCase().includes(term) ||
+          item.currentStageName?.toLowerCase().includes(term) ||
+          item.taskTitle?.toLowerCase().includes(term) ||
+          item.priorityReason?.toLowerCase().includes(term)
+      );
+    }
+
+    // Sorting
+    return [...items].sort((a, b) => {
+      if (sortBy === "sla") {
+        if (!a.dueAt) return 1;
+        if (!b.dueAt) return -1;
+        return new Date(a.dueAt) - new Date(b.dueAt);
+      }
+      if (sortBy === "priority") {
+        const order = { URGENT: 3, IMPORTANT: 2, NORMAL: 1 };
+        return (order[b.priority] || 0) - (order[a.priority] || 0);
+      }
+      if (sortBy === "number") {
+        return (a.applicationNumber || "").localeCompare(b.applicationNumber || "");
+      }
+      return 0;
+    });
+  }, [workList.items, searchQuery, priorityFilter, sortBy, workList.type]);
+
+  const supervisor = workTreeSnippet?.supervisors?.[0];
   const committees = userProfile?.committeeMemberships || [];
   const hasMultipleCommittees = committees.length > 1;
 
-  const kpis = [
-    {
-      label: "Active In Queue",
-      value: totalActiveVal.toString(),
-      icon: FileText,
-      color: "text-blue-700",
-      bg: "bg-blue-50",
-      href: "/aicte/applications",
-    },
-    {
-      label: "Pending Scrutiny",
-      value: inScrutinyVal.toString(),
-      icon: Search,
-      color: "text-amber-700",
-      bg: "bg-amber-50",
-      href: "/aicte/applications?stage=scrutiny",
-    },
-    {
-      label: "Awaiting Institution",
-      value: clarificationVal.toString(),
-      icon: Clock,
-      color: "text-orange-700",
-      bg: "bg-orange-50",
-      href: "/aicte/applications?status=awaiting_institution",
-    },
-    {
-      label: "EVC Inspections",
-      value: evcVal.toString(),
-      icon: CalendarDays,
-      color: "text-purple-700",
-      bg: "bg-purple-50",
-      href: "/aicte/evc",
-    },
-    {
-      label: "Committee Review",
-      value: committeeVal.toString(),
-      icon: Users,
-      color: "text-indigo-700",
-      bg: "bg-indigo-50",
-      href: "/aicte/applications?status=awaiting_committee",
-    },
-    {
-      label: "SLA Overdue",
-      value: overdueVal.toString(),
-      icon: AlertTriangle,
-      color: "text-rose-700",
-      bg: "bg-rose-50",
-      href: "/aicte/applications?filter=overdue",
-      highlight: overdueVal > 0,
-    },
-  ];
-
-  const stageDistribution = dashboardData?.stageDistribution || [
-    { stage: "Scrutiny", count: inScrutinyVal, fill: "#3b82f6" },
-    { stage: "Clarification", count: clarificationVal, fill: "#f59e0b" },
-    { stage: "EVC Visit", count: evcVal, fill: "#8b5cf6" },
-    { stage: "Committee", count: committeeVal, fill: "#6366f1" },
-    { stage: "Approved", count: liveKpis ? liveKpis.approvedCount : allApps.filter((a) => a.status === "approved").length, fill: "#10b981" },
-  ];
-
-  const regionalMatrix = dashboardData?.regionalMatrix || [
-    { region: "Western (Mumbai)", active: 4, scrutiny: 2, evc: 1, overdue: 0 },
-    { region: "Northern (New Delhi)", active: 3, scrutiny: 1, evc: 1, overdue: 0 },
-    { region: "Southern (Chennai)", active: 2, scrutiny: 0, evc: 0, overdue: 0 },
-    { region: "Eastern (Kolkata)", active: 2, scrutiny: 1, evc: 1, overdue: 1 },
-    { region: "South-West (Bengaluru)", active: 2, scrutiny: 0, evc: 0, overdue: 0 },
-  ];
-
-  const queueItems = (dashboardData?.roleSpecificQueue && dashboardData.roleSpecificQueue.length > 0)
-    ? dashboardData.roleSpecificQueue
-    : allApps.slice(0, 5);
+  // Mixpanel-style Pill Tab counts
+  const tabCounts = {
+    all: summary?.total || (workList.type === "applications" ? workList.total : 0),
+    assigned: summary?.assigned || 0,
+    delegated: summary?.delegatedToMe || 0,
+    waiting: summary?.waitingOnInstitute || 0,
+    completed: workList.type === "applications" && activeTab === "completed" ? workList.items.length : "—",
+  };
 
   return (
-    <div className="space-y-6">
-      {/* 1. Official Persona & Authority Header Card */}
-      <div className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-xs flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+    <div className="space-y-6 max-w-7xl mx-auto pb-10">
+      {/* ─── TOP OPERATIONAL BAR (Mixpanel Project & Session Header) ─── */}
+      <div className="rounded-2xl border border-slate-200/80 bg-white p-4 sm:p-5 shadow-2xs flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <div className="flex flex-wrap items-center gap-2 mb-1.5">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-700 bg-slate-100 px-2.5 py-0.5 rounded-full border border-slate-200 flex items-center gap-1.5">
-              <ShieldCheck className="h-3.5 w-3.5 text-blue-600" />
-              {userProfile?.employeeCode ? `${userProfile.employeeCode} Official Console` : "Regulatory Console"}
-            </span>
-
-            {userProfile?.platformRoles?.map((r) => (
-              <span
-                key={r}
-                className="text-[10px] font-bold uppercase tracking-wider bg-purple-50 text-purple-700 border border-purple-200 px-2 py-0.5 rounded-full"
-              >
-                {r.replace(/_/g, " ")}
+          {/* Status strip */}
+          <div className="flex flex-wrap items-center gap-2 mb-2">
+            {/* Live operational badge */}
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wide uppercase bg-emerald-50 text-emerald-800 border border-emerald-200">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
               </span>
-            ))}
-
-            <span className="text-[10px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-full">
-              Authenticated Session
+              Operational Station
             </span>
+
+            {/* Officer ID Code */}
+            <span className="font-mono text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200 flex items-center gap-1">
+              <ShieldCheck className="h-3 w-3 text-indigo-600" />
+              {officerCode}
+            </span>
+
+            {/* Interactive Availability Indicator */}
+            <button
+              type="button"
+              onClick={() => setIsAvailabilityOpen(true)}
+              className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs ${
+                availability?.status === "AVAILABLE" || !availability
+                  ? "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100 hover:border-slate-300"
+                  : "bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100"
+              }`}
+              title="Click to update operational availability status"
+            >
+              <span className={`h-1.5 w-1.5 rounded-full ${
+                availability?.status === "AVAILABLE" || !availability ? "bg-emerald-500" : "bg-amber-500"
+              }`}></span>
+              <span>Availability: <strong>{availability?.status || "AVAILABLE"}</strong></span>
+            </button>
+
+            {supervisor && (
+              <span className="text-[11px] text-slate-500 hidden lg:inline pl-1">
+                Supervising Authority: <strong className="text-slate-800">{supervisor.name}</strong> ({supervisor.designation})
+              </span>
+            )}
           </div>
 
-          <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
-            Welcome, {userProfile?.displayName || userProfile?.name || "Official"}
+          {/* Heading */}
+          <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
+            {getGreeting()}, {userProfile?.displayName || userProfile?.name || firstName}
           </h1>
 
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1 text-xs text-slate-500">
-            {userProfile?.designation && (
-              <span className="flex items-center gap-1 text-slate-700 font-medium">
-                <Briefcase className="h-3.5 w-3.5 text-slate-400" />
-                {userProfile.designation.title}
-              </span>
-            )}
-            {userProfile?.organizationUnit && (
-              <span className="flex items-center gap-1 text-slate-600">
-                <Building className="h-3.5 w-3.5 text-slate-400" />
-                {userProfile.organizationUnit.name}
-              </span>
-            )}
-            {userProfile?.reportsTo && (
-              <span className="text-slate-400">
-                Reports To: <strong className="text-slate-600">{userProfile.reportsTo.name}</strong>
-              </span>
-            )}
-          </div>
+          <p className="text-xs text-slate-500 mt-1 flex items-center gap-2">
+            <span>{userProfile?.designation?.title || "Approval Officer"}</span>
+            <span>•</span>
+            <span>{userProfile?.organizationUnit?.name || "Approval Bureau"}</span>
+            <span>•</span>
+            <span className="text-indigo-600 font-medium">Aph 2024-27 Workflow Cycle</span>
+          </p>
         </div>
 
-        {/* Workspace Switcher for Multi-Committee Members */}
-        {hasMultipleCommittees && (
-          <div className="flex flex-col items-start md:items-end gap-1.5 bg-slate-50 p-3 rounded-xl border border-slate-200">
-            <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1">
-              <Layers className="h-3 w-3 text-indigo-600" /> Active Committee Workspace:
-            </label>
+        {/* Right Action Bar */}
+        <div className="flex flex-wrap items-center gap-2.5">
+          {/* Quick Work Tree Link */}
+          <Link href="/aicte/my-work-tree">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 px-3.5 text-xs font-semibold text-slate-700 border-slate-200 hover:border-slate-300 hover:bg-slate-50 gap-2 rounded-lg shadow-2xs"
+            >
+              <Network className="h-3.5 w-3.5 text-indigo-600" />
+              <span>My Work Tree</span>
+            </Button>
+          </Link>
+
+          {/* Quick Delegate Action */}
+          <Button
+            size="sm"
+            onClick={() => handleOpenDelegation(null)}
+            className="h-9 px-3.5 text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-white gap-2 rounded-lg shadow-xs transition-all hover:-translate-y-0.5"
+          >
+            <UserCheck className="h-3.5 w-3.5 text-indigo-300" />
+            <span>Delegate Work</span>
+          </Button>
+
+          {/* Committee Workspace Dropdown if multi-committee */}
+          {hasMultipleCommittees && (
             <select
               value={activeWorkspace || committees[0]?.committeeCode || ""}
               onChange={(e) => switchWorkspace(e.target.value)}
-              className="h-8 text-xs font-semibold rounded-lg border border-slate-300 bg-white px-2.5 text-slate-800 focus:border-[#635bff] focus:ring-1 focus:ring-[#635bff]"
+              className="h-9 text-xs font-semibold rounded-lg border border-slate-200 bg-white px-2.5 text-slate-800 outline-none focus:border-indigo-500 shadow-2xs"
             >
               {committees.map((cm) => (
                 <option key={cm.committeeCode} value={cm.committeeCode}>
@@ -245,386 +331,694 @@ function AicteDashboardContent() {
                 </option>
               ))}
             </select>
-            <span className="text-[10px] text-slate-400">
-              Switches permissions & queue filters in real-time
+          )}
+        </div>
+      </div>
+
+      {/* ─── SECTION 1: MY WORK SUMMARY (Mixpanel-Style KPI Metric Cards) ─── */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5">
+        {/* 1. Assigned to Me */}
+        <div
+          onClick={() => handleCardClick("assigned")}
+          className={`p-4 rounded-xl border transition-all duration-200 cursor-pointer relative overflow-hidden group ${
+            activeTab === "assigned"
+              ? "bg-indigo-50/40 border-indigo-500 ring-2 ring-indigo-500/20 shadow-xs"
+              : "bg-white border-slate-200/80 hover:border-slate-300 hover:shadow-xs hover:-translate-y-0.5"
+          }`}
+        >
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+              Assigned to Me
             </span>
+            <div className={`p-1.5 rounded-lg transition-colors ${
+              activeTab === "assigned" ? "bg-indigo-600 text-white" : "bg-indigo-50 text-indigo-600 group-hover:bg-indigo-100"
+            }`}>
+              <FileText className="h-3.5 w-3.5" />
+            </div>
+          </div>
+          <div className="flex items-baseline justify-between">
+            <span className="text-3xl font-black text-slate-900 font-mono tracking-tight">
+              {summary ? summary.assigned : "—"}
+            </span>
+            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100">
+              Active Quorum
+            </span>
+          </div>
+          <div className="mt-2 pt-2 border-t border-slate-100 text-[11px] text-slate-500 flex items-center justify-between">
+            <span>Direct Regulatory Ownership</span>
+            <ChevronRight className="h-3 w-3 text-slate-400 group-hover:translate-x-0.5 transition-transform" />
+          </div>
+        </div>
+
+        {/* 2. Due Soon */}
+        <div
+          onClick={() => handleCardClick("priority")}
+          className={`p-4 rounded-xl border transition-all duration-200 cursor-pointer relative overflow-hidden group ${
+            activeTab === "priority"
+              ? "bg-rose-50/40 border-rose-500 ring-2 ring-rose-500/20 shadow-xs"
+              : "bg-white border-slate-200/80 hover:border-slate-300 hover:shadow-xs hover:-translate-y-0.5"
+          }`}
+        >
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-rose-600">
+              Due Soon (&lt; 72h)
+            </span>
+            <div className={`p-1.5 rounded-lg transition-colors ${
+              activeTab === "priority" ? "bg-rose-600 text-white" : "bg-rose-50 text-rose-600 group-hover:bg-rose-100"
+            }`}>
+              <Clock className="h-3.5 w-3.5" />
+            </div>
+          </div>
+          <div className="flex items-baseline justify-between">
+            <span className="text-3xl font-black text-rose-600 font-mono tracking-tight">
+              {summary ? summary.dueSoon : "—"}
+            </span>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200">
+              SLA Risk
+            </span>
+          </div>
+          <div className="mt-2 pt-2 border-t border-slate-100 text-[11px] text-slate-500 flex items-center justify-between">
+            <span>Critical Timelines</span>
+            <ChevronRight className="h-3 w-3 text-slate-400 group-hover:translate-x-0.5 transition-transform" />
+          </div>
+        </div>
+
+        {/* 3. Waiting on Institute */}
+        <div
+          onClick={() => handleCardClick("waiting")}
+          className={`p-4 rounded-xl border transition-all duration-200 cursor-pointer relative overflow-hidden group ${
+            activeTab === "waiting"
+              ? "bg-amber-50/40 border-amber-500 ring-2 ring-amber-500/20 shadow-xs"
+              : "bg-white border-slate-200/80 hover:border-slate-300 hover:shadow-xs hover:-translate-y-0.5"
+          }`}
+        >
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-amber-700">
+              Waiting on Institute
+            </span>
+            <div className={`p-1.5 rounded-lg transition-colors ${
+              activeTab === "waiting" ? "bg-amber-600 text-white" : "bg-amber-50 text-amber-600 group-hover:bg-amber-100"
+            }`}>
+              <AlertTriangle className="h-3.5 w-3.5" />
+            </div>
+          </div>
+          <div className="flex items-baseline justify-between">
+            <span className="text-3xl font-black text-slate-900 font-mono tracking-tight">
+              {summary ? summary.waitingOnInstitute : "—"}
+            </span>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
+              Clarifications
+            </span>
+          </div>
+          <div className="mt-2 pt-2 border-t border-slate-100 text-[11px] text-slate-500 flex items-center justify-between">
+            <span>Deficiency Compliance</span>
+            <ChevronRight className="h-3 w-3 text-slate-400 group-hover:translate-x-0.5 transition-transform" />
+          </div>
+        </div>
+
+        {/* 4. Delegated to Me */}
+        <div
+          onClick={() => handleCardClick("delegated")}
+          className={`p-4 rounded-xl border transition-all duration-200 cursor-pointer relative overflow-hidden group ${
+            activeTab === "delegated"
+              ? "bg-purple-50/40 border-purple-500 ring-2 ring-purple-500/20 shadow-xs"
+              : "bg-white border-slate-200/80 hover:border-slate-300 hover:shadow-xs hover:-translate-y-0.5"
+          }`}
+        >
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-purple-700">
+              Delegated to Me
+            </span>
+            <div className={`p-1.5 rounded-lg transition-colors ${
+              activeTab === "delegated" ? "bg-purple-600 text-white" : "bg-purple-50 text-purple-600 group-hover:bg-purple-100"
+            }`}>
+              <UserCheck className="h-3.5 w-3.5" />
+            </div>
+          </div>
+          <div className="flex items-baseline justify-between">
+            <span className="text-3xl font-black text-purple-700 font-mono tracking-tight">
+              {summary ? summary.delegatedToMe : "—"}
+            </span>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200">
+              Co-Review
+            </span>
+          </div>
+          <div className="mt-2 pt-2 border-t border-slate-100 text-[11px] text-slate-500 flex items-center justify-between">
+            <span>Shared Officer Tasks</span>
+            <ChevronRight className="h-3 w-3 text-slate-400 group-hover:translate-x-0.5 transition-transform" />
+          </div>
+        </div>
+      </div>
+
+      {/* ─── SECTION 2: PRIORITY WORK (Mixpanel-Style Intelligence & Milestone Funnel) ─── */}
+      <div className="space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
+          <div className="flex items-center gap-2.5">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-900 flex items-center gap-1.5">
+              <Zap className="h-3.5 w-3.5 text-amber-500 fill-amber-500" />
+              Priority Work Bench
+            </h2>
+            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200">
+              {priorityItems.length} Urgent / Action Mandated
+            </span>
+          </div>
+          <span className="text-[11px] text-slate-400">
+            Ranked by regulatory SLA urgency, deficiency escalations, and statutory milestones
+          </span>
+        </div>
+
+        {priorityItems.length === 0 ? (
+          <Card className="p-8 text-center border border-slate-200/80 bg-white rounded-2xl shadow-2xs">
+            <CheckCircle2 className="h-9 w-9 text-emerald-500 mx-auto mb-2.5" />
+            <p className="text-sm font-bold text-slate-900">Priority Queue Clear</p>
+            <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
+              No urgent regulatory deadlines or escalations pending. Routine queue items are available below.
+            </p>
+          </Card>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+            {priorityItems.slice(0, 4).map((item) => {
+              const currentStep = getStageStep(item.currentStageName);
+              return (
+                <div
+                  key={item.id}
+                  className="p-4 rounded-xl border border-slate-200/90 bg-white hover:border-slate-300 hover:shadow-xs transition-all flex flex-col justify-between space-y-3 relative group"
+                >
+                  <div>
+                    {/* Top row: Application Number + Priority Badge + SLA */}
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <div className="flex items-center gap-2">
+                        <Link
+                          href={`/aicte/applications/${item.id}`}
+                          className="font-mono font-bold text-xs text-indigo-600 hover:text-indigo-800 transition-colors"
+                        >
+                          {item.applicationNumber}
+                        </Link>
+                        <span className="text-[10px] text-slate-400 font-mono">
+                          • {item.category || "REGULATORY"}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider flex items-center gap-1 ${
+                          item.priority === "URGENT"
+                            ? "bg-rose-50 text-rose-700 border border-rose-200"
+                            : "bg-amber-50 text-amber-800 border border-amber-200"
+                        }`}>
+                          <span className={`h-1.5 w-1.5 rounded-full ${
+                            item.priority === "URGENT" ? "bg-rose-500 animate-pulse" : "bg-amber-500"
+                          }`}></span>
+                          {item.priority}
+                        </span>
+
+                        {item.dueAt && (
+                          <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 text-[10px] font-mono border border-slate-200 font-medium">
+                            <SlaCountdown dueAt={item.dueAt} />
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Institution title */}
+                    <h3 className="text-sm font-bold text-slate-900 group-hover:text-indigo-950 transition-colors line-clamp-1">
+                      {item.institutionName}
+                    </h3>
+
+                    {/* Priority Reason Pill */}
+                    <div className="mt-2 flex items-center gap-2">
+                      <span className="px-2 py-0.5 rounded-md bg-slate-100/90 text-slate-700 text-[10px] font-medium border border-slate-200/70 truncate max-w-full">
+                        {item.priorityReason || "Statutory stage review in progress"}
+                      </span>
+                    </div>
+
+                    {/* Mixpanel-Style Funnel Stage Progress Bar */}
+                    <div className="mt-3 pt-2.5 border-t border-slate-100">
+                      <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1.5 font-medium">
+                        <span>Workflow Stage: <strong className="text-slate-700">{item.currentStageName}</strong></span>
+                        <span className="font-mono">{currentStep} of 4</span>
+                      </div>
+
+                      {/* 4-Step Milestone Dots */}
+                      <div className="grid grid-cols-4 gap-1.5 items-center">
+                        {FUNNEL_STAGES.map((st) => (
+                          <div key={st.step} className="space-y-1">
+                            <div
+                              className={`h-1.5 rounded-full transition-all ${
+                                currentStep >= st.step
+                                  ? currentStep === st.step
+                                    ? "bg-indigo-600"
+                                    : "bg-indigo-300"
+                                  : "bg-slate-100"
+                              }`}
+                            />
+                            <p className={`text-[9px] truncate text-center ${
+                              currentStep === st.step ? "font-bold text-indigo-700" : "text-slate-400"
+                            }`}>
+                              {st.label}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Card Footer Actions */}
+                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
+                    <span className="text-[11px] text-slate-500 truncate max-w-[170px]">
+                      Next: <strong className="text-slate-800">{item.nextLevelName || "Approval Council"}</strong>
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => handleOpenDelegation(item)}
+                        className="h-7 text-xs px-2 text-slate-600 hover:text-slate-900 font-semibold"
+                      >
+                        Delegate
+                      </Button>
+                      <Link href={`/aicte/applications/${item.id}`}>
+                        <Button size="sm" className="h-7 text-xs px-3 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-lg shadow-2xs gap-1">
+                          <span>Review Case</span>
+                          <ArrowRight className="h-3 w-3" />
+                        </Button>
+                      </Link>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
 
-      {/* 2. Role-Specific Statutory Authority & Action Boundary Banner */}
-      <div className={`p-4 rounded-xl border ${
-        isScrutinyOfficer
-          ? "bg-amber-50/50 border-amber-200"
-          : isEvcCoordinator
-          ? "bg-purple-50/50 border-purple-200"
-          : isCompetentAuthority
-          ? "bg-indigo-50/50 border-indigo-200"
-          : "bg-slate-50/80 border-slate-200"
-      }`}>
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-          <div>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-600">
-              Statutory Role Powers & Workflow Boundaries
-            </span>
-            <h2 className="text-sm font-bold text-slate-900 mt-0.5">
-              {isScrutinyOfficer && "Scrutiny Committee Evaluator — Statutory Dossier Review"}
-              {isEvcCoordinator && "Expert Visit Committee (EVC) Coordinator — Inspection Administration"}
-              {isCompetentAuthority && "Competent Authority — Quasi-Judicial Decisions & Final Regulatory Orders"}
-              {isSuperAdmin && "Council Super Administrator — Executive Oversight & Roster Administration"}
-            </h2>
+      {/* ─── SECTION 3: MY WORK QUEUE (Mixpanel-Style Recessed Segmented Controls + Dense Grid) ─── */}
+      <Card className="border border-slate-200/90 shadow-2xs bg-white rounded-2xl overflow-hidden">
+        {/* Recessed Mixpanel-Style Segmented Control Bar */}
+        <div className="p-3.5 border-b border-slate-200/80 bg-slate-50/70 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+          {/* Segmented Pills */}
+          <div className="bg-slate-200/70 p-1 rounded-xl flex items-center overflow-x-auto gap-0.5">
+            {[
+              { id: "all", label: "All Work", count: tabCounts.all },
+              { id: "assigned", label: "Assigned to Me", count: tabCounts.assigned },
+              { id: "delegated", label: "Delegated Tasks", count: tabCounts.delegated },
+              { id: "waiting", label: "Waiting on Institute", count: tabCounts.waiting },
+              { id: "completed", label: "Completed Orders", count: tabCounts.completed },
+            ].map((tab) => {
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all duration-150 flex items-center gap-1.5 cursor-pointer ${
+                    isActive
+                      ? "bg-white text-slate-950 shadow-2xs font-bold border border-slate-200/60"
+                      : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+                  }`}
+                >
+                  <span>{tab.label}</span>
+                  {tab.count !== "—" && (
+                    <span
+                      className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full font-bold ${
+                        isActive
+                          ? "bg-slate-900 text-white"
+                          : "bg-slate-300/80 text-slate-700"
+                      }`}
+                    >
+                      {tab.count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
-          <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-            {isScrutinyOfficer && (
-              <>
-                <span className="bg-amber-100 text-amber-800 px-2 py-0.5 rounded font-medium">Verify Documents</span>
-                <span className="bg-amber-100 text-amber-800 px-2 py-0.5 rounded font-medium">AI Advisory Pre-Check</span>
-                <span className="bg-amber-100 text-amber-800 px-2 py-0.5 rounded font-medium">Issue Deficiencies</span>
-                <span className="bg-amber-100 text-amber-800 px-2 py-0.5 rounded font-medium">Endorse Scrutiny</span>
-              </>
+
+          {/* Quick Filter & Search Bar */}
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Priority Filter */}
+            {workList.type !== "delegations" && (
+              <select
+                value={priorityFilter}
+                onChange={(e) => setPriorityFilter(e.target.value)}
+                className="h-8 text-xs font-semibold rounded-lg border border-slate-200 bg-white px-2.5 text-slate-700 outline-none focus:border-indigo-500 shadow-2xs"
+              >
+                <option value="ALL">All Priorities</option>
+                <option value="URGENT">Urgent Only</option>
+                <option value="IMPORTANT">Important</option>
+                <option value="NORMAL">Normal</option>
+              </select>
             )}
-            {isEvcCoordinator && (
-              <>
-                <span className="bg-purple-100 text-purple-800 px-2 py-0.5 rounded font-medium">Schedule EVC Visits</span>
-                <span className="bg-purple-100 text-purple-800 px-2 py-0.5 rounded font-medium">Assign Expert Panels</span>
-                <span className="bg-purple-100 text-purple-800 px-2 py-0.5 rounded font-medium">Review Geotagged Evidence</span>
-              </>
-            )}
-            {isCompetentAuthority && (
-              <>
-                <span className="bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded font-medium">Quasi-Judicial Hearing (SHC)</span>
-                <span className="bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded font-medium">Appellate Authority (SAC)</span>
-                <span className="bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded font-medium">Grant Approval / Reasoned Rejection</span>
-              </>
-            )}
-            {isSuperAdmin && (
-              <>
-                <span className="bg-slate-200 text-slate-800 px-2 py-0.5 rounded font-medium">Staff Management</span>
-                <span className="bg-slate-200 text-slate-800 px-2 py-0.5 rounded font-medium">Regional Workload Matrix</span>
-                <span className="bg-slate-200 text-slate-800 px-2 py-0.5 rounded font-medium">System Audit Logs</span>
-              </>
-            )}
+
+            {/* Sort Selector */}
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              className="h-8 text-xs font-semibold rounded-lg border border-slate-200 bg-white px-2.5 text-slate-700 outline-none focus:border-indigo-500 shadow-2xs"
+            >
+              <option value="sla">Sort: SLA Earliest</option>
+              <option value="priority">Sort: Highest Priority</option>
+              <option value="number">Sort: Application ID</option>
+            </select>
+
+            {/* Live Search */}
+            <div className="relative w-full sm:w-60">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search ID, institute, task..."
+                className="w-full h-8 pl-8 pr-3 rounded-lg border border-slate-200 bg-white text-xs text-slate-800 outline-none focus:border-indigo-500 placeholder:text-slate-400 shadow-2xs"
+              />
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* 3. Super Admin Staff Management Console (Rendered for Super Admin / user_management module) */}
-      {(isSuperAdmin || activeModules.includes("user_management")) && (
-        <StaffManagementModule currentStaff={userProfile} />
-      )}
-
-      {/* 4. Scrutiny Committee Specific Desk */}
-      {(isScrutinyOfficer || activeModules.includes("scrutiny")) && (
-        <Card className="border border-amber-200 shadow-2xs bg-amber-50/20">
-          <CardHeader className="p-4 border-b border-amber-100 flex flex-row items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="flex h-7 w-7 items-center justify-center rounded bg-amber-100 text-amber-700">
-                <Search className="h-4 w-4" />
-              </div>
-              <div>
-                <CardTitle className="text-sm font-semibold text-slate-900">
-                  Scrutiny Committee Evaluation Desk
-                </CardTitle>
-                <CardDescription className="text-xs text-slate-500">
-                  Dossier review, land/infrastructure compliance validation, AI pre-check analysis, and deficiency issuance
-                </CardDescription>
-              </div>
-            </div>
-            <Link href="/aicte/applications?stage=scrutiny">
-              <Button size="sm" className="h-7 text-xs bg-amber-700 hover:bg-amber-800 text-white font-medium">
-                Open Scrutiny Queue ({inScrutinyVal})
-              </Button>
-            </Link>
-          </CardHeader>
-          <CardContent className="p-4 text-xs text-slate-600">
-            <p>
-              As a Scrutiny Committee evaluator, you have statutory authority under Chapter I/II of APH 2024-2027 to verify land title deeds, structural safety NOCs, faculty cadre allocations, and trigger AI Scrutiny Assistant pre-checks.
-            </p>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* 5. EVC Inspection Desk */}
-      {(isEvcCoordinator || activeModules.includes("evc_tasks")) && (
-        <Card className="border border-purple-200 shadow-2xs bg-purple-50/20">
-          <CardHeader className="p-4 border-b border-purple-100 flex flex-row items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="flex h-7 w-7 items-center justify-center rounded bg-purple-100 text-purple-700">
-                <CalendarDays className="h-4 w-4" />
-              </div>
-              <div>
-                <CardTitle className="text-sm font-semibold text-slate-900">
-                  Expert Visit Committee (EVC) Inspection Desk
-                </CardTitle>
-                <CardDescription className="text-xs text-slate-500">
-                  Physical and virtual campus inspections, laboratory equipment verification, and geotagged report submission
-                </CardDescription>
-              </div>
-            </div>
-            <Link href="/aicte/evc">
-              <Button size="sm" className="h-7 text-xs bg-purple-700 hover:bg-purple-800 text-white font-medium">
-                Open EVC Console ({evcVal})
-              </Button>
-            </Link>
-          </CardHeader>
-          <CardContent className="p-4 text-xs text-slate-600">
-            <p>
-              Schedule expert visits, assign subject matter experts, inspect campus facilities, and evaluate ground truth against uploaded architectural plans.
-            </p>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* 6. Competent Decision Authority & SHC/SAC Desk */}
-      {(isCompetentAuthority || activeModules.includes("shc_tasks") || activeModules.includes("sac_tasks")) && (
-        <Card className="border border-indigo-200 shadow-2xs bg-indigo-50/20">
-          <CardHeader className="p-4 border-b border-indigo-100 flex flex-row items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="flex h-7 w-7 items-center justify-center rounded bg-indigo-100 text-indigo-700">
-                <Gavel className="h-4 w-4" />
-              </div>
-              <div>
-                <CardTitle className="text-sm font-semibold text-slate-900">
-                  Competent Regulatory Authority & Hearing Docket
-                </CardTitle>
-                <CardDescription className="text-xs text-slate-500">
-                  Quasi-judicial personal hearings for contested applications and final Executive Committee statutory orders
-                </CardDescription>
-              </div>
-            </div>
-            <Link href="/aicte/applications?status=awaiting_committee">
-              <Button size="sm" className="h-7 text-xs bg-indigo-700 hover:bg-indigo-800 text-white font-medium">
-                Open Decision Docket ({committeeVal})
-              </Button>
-            </Link>
-          </CardHeader>
-          <CardContent className="p-4 text-xs text-slate-600">
-            <p>
-              Authorized to conduct formal personal hearings, evaluate institutional representations against scrutiny deficiencies, and issue final Letters of Approval (LoA) or Reasoned Rejections.
-            </p>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* 7. KPI Metrics Row */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3.5">
-        {kpis.map((kpi) => {
-          const Icon = kpi.icon;
-          return (
-            <Link key={kpi.label} href={kpi.href}>
-              <Card
-                className={`border border-slate-200/90 shadow-2xs hover:shadow-xs transition bg-white p-3.5 cursor-pointer ${
-                  kpi.highlight ? "border-rose-300 ring-1 ring-rose-200" : ""
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 truncate">
-                    {kpi.label}
-                  </span>
-                  <div className={`flex h-6 w-6 items-center justify-center rounded ${kpi.bg}`}>
-                    <Icon className={`h-3.5 w-3.5 ${kpi.color}`} />
-                  </div>
-                </div>
-                <div className="mt-2 text-xl font-bold tracking-tight text-slate-900">
-                  {kpi.value}
-                </div>
-              </Card>
-            </Link>
-          );
-        })}
-      </div>
-
-      {/* 8. Stage Distribution & Regional Matrix */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Stage Distribution Chart */}
-        <Card className="border border-slate-200/90 shadow-2xs bg-white">
-          <CardHeader className="p-4 border-b border-slate-100 flex flex-row items-center justify-between">
-            <div>
-              <CardTitle className="text-sm font-semibold text-slate-900">
-                Application Distribution by Workflow Stage
-              </CardTitle>
-              <CardDescription className="text-xs text-slate-500">
-                Active workflow pipeline across all regulatory stages
-              </CardDescription>
-            </div>
-          </CardHeader>
-          <CardContent className="p-4">
-            <div className="h-56 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={stageDistribution}
-                  layout="vertical"
-                  margin={{ left: 10, right: 20, top: 10, bottom: 0 }}
-                >
-                  <XAxis type="number" hide />
-                  <YAxis
-                    dataKey="stage"
-                    type="category"
-                    axisLine={false}
-                    tickLine={false}
-                    tick={{ fontSize: 11, fill: "#475569" }}
-                    width={85}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "#0f172a",
-                      border: "none",
-                      borderRadius: "6px",
-                      color: "#fff",
-                      fontSize: "11px",
-                    }}
-                  />
-                  <Bar dataKey="count" radius={[0, 4, 4, 0]}>
-                    {stageDistribution.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.fill} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Regional Pendency Table */}
-        <Card className="border border-slate-200/90 shadow-2xs bg-white">
-          <CardHeader className="p-4 border-b border-slate-100 flex flex-row items-center justify-between">
-            <div>
-              <CardTitle className="text-sm font-semibold text-slate-900">
-                Regional Pendency Matrix
-              </CardTitle>
-              <CardDescription className="text-xs text-slate-500">
-                Workload and overdue tracking across AICTE Regional Offices
-              </CardDescription>
-            </div>
-          </CardHeader>
+        {/* Work List Content */}
+        {workList.type === "delegations" ? (
+          // Delegated Tasks Table
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs border-collapse">
               <thead>
-                <tr className="border-b border-slate-200 bg-slate-50/70 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-                  <th className="py-2.5 px-3">Regional Office</th>
-                  <th className="py-2.5 px-3 text-center">Active</th>
-                  <th className="py-2.5 px-3 text-center">In Scrutiny</th>
-                  <th className="py-2.5 px-3 text-center">EVC</th>
-                  <th className="py-2.5 px-3 text-right">Overdue SLA</th>
+                <tr className="border-b border-slate-200 bg-slate-50/90 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                  <th className="py-3 px-4">Task Scope & Title</th>
+                  <th className="py-3 px-4">Application ID</th>
+                  <th className="py-3 px-4">Colleague Assignment</th>
+                  <th className="py-3 px-4">Priority & Context</th>
+                  <th className="py-3 px-4">Deadline</th>
+                  <th className="py-3 px-4">Status</th>
+                  <th className="py-3 px-4 text-right">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {regionalMatrix.map((r) => (
-                  <tr key={r.regionId || r.region} className="hover:bg-slate-50/60 transition">
-                    <td className="py-2.5 px-3 font-semibold text-slate-800">{r.region}</td>
-                    <td className="py-2.5 px-3 text-center font-medium text-slate-700">{r.active}</td>
-                    <td className="py-2.5 px-3 text-center font-medium text-amber-700">{r.scrutiny}</td>
-                    <td className="py-2.5 px-3 text-center font-medium text-purple-700">{r.evc}</td>
-                    <td className="py-2.5 px-3 text-right">
-                      {r.overdue > 0 ? (
-                        <span className="font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded border border-rose-200">
-                          {r.overdue} breached
-                        </span>
-                      ) : (
-                        <span className="text-slate-400">0</span>
-                      )}
+                {filteredItems.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="py-14 text-center text-slate-500">
+                      <UserCheck className="h-8 w-8 text-slate-300 mx-auto mb-2" />
+                      <p className="text-sm font-bold text-slate-800">No delegated tasks found</p>
+                      <p className="text-xs text-slate-400 mt-0.5">Tasks delegated to or by your desk will display here</p>
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  filteredItems.map((task) => (
+                    <tr key={task.id} className="hover:bg-indigo-50/20 transition-colors">
+                      <td className="py-3 px-4 font-semibold text-slate-900 max-w-xs">
+                        <p className="font-bold text-slate-900">{task.taskTitle}</p>
+                        <p className="text-[11px] text-slate-400 font-normal truncate">{task.taskDescription}</p>
+                      </td>
+                      <td className="py-3 px-4 font-mono font-bold text-indigo-600">
+                        <Link href={`/aicte/applications/${task.applicationId}`} className="hover:underline">
+                          {task.applicationNumber}
+                        </Link>
+                      </td>
+                      <td className="py-3 px-4 text-slate-700">
+                        {task.isDelegatedToMe ? (
+                          <span className="text-xs">
+                            From: <strong className="text-slate-900">{task.delegatedBy?.name}</strong>
+                          </span>
+                        ) : (
+                          <span className="text-xs">
+                            To: <strong className="text-slate-900">{task.delegatedTo?.name}</strong>
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4">
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${
+                          task.priority === "URGENT" ? "bg-rose-100 text-rose-800 border border-rose-200" : "bg-slate-100 text-slate-700"
+                        }`}>
+                          {task.priority}
+                        </span>
+                        <p className="text-[10px] text-slate-400 mt-0.5">{task.reason}</p>
+                      </td>
+                      <td className="py-3 px-4 text-slate-600 font-mono">
+                        {task.deadline ? new Date(task.deadline).toLocaleDateString("en-IN") : "—"}
+                      </td>
+                      <td className="py-3 px-4">
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                          task.status === "COMPLETED"
+                            ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
+                            : task.status === "PENDING"
+                            ? "bg-amber-100 text-amber-800 border border-amber-200 animate-pulse"
+                            : "bg-blue-100 text-blue-800 border border-blue-200"
+                        }`}>
+                          {task.status}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <Link href={`/aicte/applications/${task.applicationId}`}>
+                          <Button size="sm" className="h-7 text-xs bg-slate-900 hover:bg-slate-800 text-white font-medium rounded-lg">
+                            Open Task
+                          </Button>
+                        </Link>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
+          </div>
+        ) : (
+          // Applications List Table
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50/90 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                  <th className="py-3 px-4">Application ID</th>
+                  <th className="py-3 px-4">Institution & Region</th>
+                  <th className="py-3 px-4">Statutory Workflow Stage</th>
+                  <th className="py-3 px-4">Priority & Escalation</th>
+                  <th className="py-3 px-4">Regulatory Status</th>
+                  <th className="py-3 px-4">SLA Countdown</th>
+                  <th className="py-3 px-4 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredItems.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="py-14 text-center text-slate-500">
+                      <Inbox className="h-8 w-8 text-slate-300 mx-auto mb-2" />
+                      <p className="text-sm font-bold text-slate-800">No applications match current filters</p>
+                      <p className="text-xs text-slate-400 mt-0.5">Try switching queue tabs or resetting your search term</p>
+                    </td>
+                  </tr>
+                ) : (
+                  filteredItems.map((app) => (
+                    <tr key={app.id} className="hover:bg-indigo-50/20 transition-colors">
+                      <td className="py-3 px-4 font-mono font-bold text-slate-900">
+                        <Link href={`/aicte/applications/${app.id}`} className="hover:underline text-indigo-600 flex items-center gap-1">
+                          {app.applicationNumber}
+                        </Link>
+                      </td>
+                      <td className="py-3 px-4">
+                        <p className="font-bold text-slate-900 truncate max-w-xs">
+                          {app.institutionName}
+                        </p>
+                        <p className="text-[11px] text-slate-400">{app.regionName || "Western Region"} • {app.category}</p>
+                      </td>
+                      <td className="py-3 px-4">
+                        <p className="font-semibold text-slate-800">{app.currentStageName}</p>
+                        {app.nextLevelName && (
+                          <div className="flex items-center gap-1 mt-0.5 text-[10px] text-indigo-600 font-medium">
+                            <ArrowRight className="h-2.5 w-2.5" /> Next: {app.nextLevelName}
+                          </div>
+                        )}
+                      </td>
+                      <td className="py-3 px-4">
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${
+                          app.priority === "URGENT"
+                            ? "bg-rose-100 text-rose-800 border border-rose-200"
+                            : app.priority === "IMPORTANT"
+                            ? "bg-amber-100 text-amber-800 border border-amber-200"
+                            : "bg-slate-100 text-slate-700"
+                        }`}>
+                          {app.priority}
+                        </span>
+                        <p className="text-[10px] text-slate-500 mt-0.5 truncate max-w-[150px]">
+                          {app.priorityReason}
+                        </p>
+                      </td>
+                      <td className="py-3 px-4">
+                        <StatusBadge status={app.status} />
+                      </td>
+                      <td className="py-3 px-4">
+                        <SlaCountdown dueAt={app.dueAt} />
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleOpenDelegation(app)}
+                            className="h-7 text-xs px-2 text-slate-600 hover:text-slate-900 font-semibold"
+                          >
+                            Delegate
+                          </Button>
+                          <Link href={`/aicte/applications/${app.id}`}>
+                            <Button size="sm" className="h-7 text-xs px-2.5 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-lg shadow-2xs">
+                              Review
+                            </Button>
+                          </Link>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Footer info strip */}
+        <div className="p-3 border-t border-slate-100 bg-slate-50/50 flex items-center justify-between text-xs text-slate-500">
+          <span className="font-medium">Displaying {filteredItems.length} active regulatory items</span>
+          <span className="font-mono text-[11px] text-slate-400">AICTE Approval Grid v2.4 • Live Sync</span>
+        </div>
+      </Card>
+
+      {/* ─── SECTION 4: HIERARCHY & BUREAU WORKLOAD (Mixpanel-Style Team Insights) ─── */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Work Tree Snapshot */}
+        <Card className="p-4 sm:p-5 border border-slate-200/90 shadow-2xs bg-white rounded-2xl space-y-3.5">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div className="flex items-center gap-2">
+              <Network className="h-4 w-4 text-indigo-600" />
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900">
+                Official Hierarchy Flow
+              </h3>
+            </div>
+            <Link href="/aicte/my-work-tree">
+              <Button variant="ghost" size="sm" className="h-7 text-xs text-indigo-600 font-bold p-0 hover:text-indigo-800">
+                View Full Tree →
+              </Button>
+            </Link>
+          </div>
+
+          <div className="space-y-2 text-xs">
+            {supervisor ? (
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80 flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="h-8 w-8 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center font-bold text-xs">
+                    {supervisor.name.split(" ").map(n => n[0]).join("")}
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 font-bold uppercase">Supervising Authority</span>
+                    <p className="font-bold text-slate-900">{supervisor.name}</p>
+                    <p className="text-[11px] text-slate-500">{supervisor.designation} • {supervisor.organizationUnit}</p>
+                  </div>
+                </div>
+                <span className="text-[10px] font-mono text-slate-400 bg-white px-2 py-0.5 rounded border border-slate-200">{supervisor.employeeCode}</span>
+              </div>
+            ) : (
+              <p className="text-slate-400 italic">Apex Authority Station</p>
+            )}
+
+            {/* Vertical connector line */}
+            <div className="pl-6 py-0.5 text-indigo-300 font-mono text-xs">
+              │
+            </div>
+
+            <div className="p-3 rounded-xl bg-indigo-50/30 border border-indigo-200/80 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="h-8 w-8 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-xs">
+                  {firstName[0]}
+                </div>
+                <div>
+                  <span className="text-[10px] text-indigo-700 font-bold uppercase">Your Desk (Current Station)</span>
+                  <p className="font-bold text-slate-900">{userProfile?.name || "Official"}</p>
+                  <p className="text-[11px] text-slate-500">{userProfile?.designation?.title || "Approval Officer"}</p>
+                </div>
+              </div>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                {availability?.status || "AVAILABLE"}
+              </span>
+            </div>
+          </div>
+        </Card>
+
+        {/* Bureau Team Workload (Mixpanel Horizontal Bar Representation) */}
+        <Card className="p-4 sm:p-5 border border-slate-200/90 shadow-2xs bg-white rounded-2xl space-y-3.5">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div className="flex items-center gap-2">
+              <Users className="h-4 w-4 text-purple-600" />
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900">
+                {teamWorkload?.teamMembers?.length > 0 ? "Bureau Team Workload" : "Colleague Workload"}
+              </h3>
+            </div>
+            <span className="text-[11px] text-slate-400 font-medium">
+              {teamWorkload?.teamMembers?.length || 0} Officers Active
+            </span>
+          </div>
+
+          <div className="space-y-2.5 max-h-[175px] overflow-y-auto text-xs pr-1">
+            {teamWorkload?.teamMembers && teamWorkload.teamMembers.length > 0 ? (
+              teamWorkload.teamMembers.slice(0, 5).map((member) => (
+                <div key={member.id} className="p-2.5 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="h-7 w-7 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center font-bold text-xs">
+                      {member.name.split(" ").map(n => n[0]).join("")}
+                    </div>
+                    <div>
+                      <p className="font-bold text-slate-900">{member.name}</p>
+                      <p className="text-[10px] text-slate-500">{member.designation}</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    {/* Horizontal progress capacity bar */}
+                    <div className="hidden sm:block w-20 bg-slate-200 h-1.5 rounded-full overflow-hidden">
+                      <div
+                        className="bg-indigo-600 h-full rounded-full transition-all"
+                        style={{ width: `${Math.min(100, (member.activeCount / 8) * 100)}%` }}
+                      />
+                    </div>
+
+                    <span className="text-[11px] font-mono text-slate-700 font-bold">
+                      {member.activeCount} <span className="font-normal text-slate-400">cases</span>
+                    </span>
+
+                    {member.urgentCount > 0 && (
+                      <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200">
+                        {member.urgentCount} urgent
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))
+            ) : (
+              <p className="text-slate-400 text-center py-6 italic text-xs">
+                No subordinate team members currently assigned.
+              </p>
+            )}
           </div>
         </Card>
       </div>
 
-      {/* 9. Active Official Work Queue Table (Tailored to Role) */}
-      <Card className="border border-slate-200/90 shadow-2xs bg-white">
-        <CardHeader className="p-4 border-b border-slate-100 flex flex-row items-center justify-between">
-          <div>
-            <CardTitle className="text-sm font-semibold text-slate-900">
-              {isScrutinyOfficer && "Assigned Scrutiny Cases & AI Pre-Check Queue"}
-              {isEvcCoordinator && "Pending EVC Campus Inspection Queue"}
-              {isCompetentAuthority && "Executive Decision & Hearing Docket"}
-              {isSuperAdmin && "Active Council Regulatory Work Queue"}
-            </CardTitle>
-            <p className="text-xs text-slate-500 mt-0.5">
-              {isScrutinyOfficer && "Cases requiring scrutiny document verification, AI advisory report review, or deficiency flagging"}
-              {isEvcCoordinator && "Applications pending on-site physical/virtual inspection and expert panel assignment"}
-              {isCompetentAuthority && "Applications scheduled for personal hearing or final statutory decision issuance"}
-              {isSuperAdmin && "All active applications requiring regulatory processing across regional offices"}
-            </p>
-          </div>
-          <Link href="/aicte/applications">
-            <Button variant="ghost" size="sm" className="text-xs text-blue-600">
-              Full Queue Table <ChevronRight className="h-3.5 w-3.5 ml-0.5" />
-            </Button>
-          </Link>
-        </CardHeader>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead>
-              <tr className="border-b border-slate-200 bg-slate-50/70 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-                <th className="py-3 px-4">Application ID</th>
-                <th className="py-3 px-4">Institution Name</th>
-                <th className="py-3 px-4">Category</th>
-                <th className="py-3 px-4">Current Stage</th>
-                <th className="py-3 px-4">Workflow Status</th>
-                <th className="py-3 px-4">SLA Deadline</th>
-                <th className="py-3 px-4 text-right">Authorized Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {queueItems.map((app) => {
-                const instName = app.institution?.institutionName || app.formData?.institution_name || "Technical Institute";
-                const regionLabel = app.region?.name || app.regionId || "National";
-                return (
-                  <tr key={app.id} className="hover:bg-slate-50/80 transition">
-                    <td className="py-3 px-4 font-mono font-bold text-slate-900">
-                      <Link href={`/aicte/applications/${app.id}`} className="hover:underline text-blue-600">
-                        {app.applicationNumber}
-                      </Link>
-                    </td>
-                    <td className="py-3 px-4">
-                      <p className="font-semibold text-slate-900 truncate max-w-xs">
-                        {instName}
-                      </p>
-                      <p className="text-[11px] text-slate-400 capitalize">{regionLabel}</p>
-                    </td>
-                    <td className="py-3 px-4 text-slate-700 font-medium">
-                      {APPLICATION_CATEGORY_LABELS[app.applicationCategory] || app.applicationCategory || "EoA"}
-                    </td>
-                    <td className="py-3 px-4 font-medium text-slate-800">
-                      {app.currentStageName || app.currentStageId}
-                    </td>
-                    <td className="py-3 px-4">
-                      <StatusBadge status={app.status} />
-                    </td>
-                    <td className="py-3 px-4">
-                      <SlaCountdown dueAt={app.dueAt} />
-                    </td>
-                    <td className="py-3 px-4 text-right">
-                      <Link href={`/aicte/applications/${app.id}`}>
-                        <Button
-                          size="sm"
-                          className={`h-7 text-xs text-white font-medium ${
-                            isScrutinyOfficer
-                              ? "bg-amber-700 hover:bg-amber-800"
-                              : isEvcCoordinator
-                              ? "bg-purple-700 hover:bg-purple-800"
-                              : isCompetentAuthority
-                              ? "bg-indigo-700 hover:bg-indigo-800"
-                              : "bg-slate-900 hover:bg-slate-800"
-                          }`}
-                        >
-                          {isScrutinyOfficer && "Inspect Scrutiny Dossier"}
-                          {isEvcCoordinator && "Review EVC Inspection"}
-                          {isCompetentAuthority && "Decision Docket"}
-                          {isSuperAdmin && "Review Case"}
-                        </Button>
-                      </Link>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+      {/* ─── MODALS ─── */}
+      {isDelegationOpen && (
+        <DelegationModal
+          isOpen={isDelegationOpen}
+          onClose={() => {
+            setIsDelegationOpen(false);
+            setSelectedAppForDelegation(null);
+          }}
+          application={selectedAppForDelegation}
+          onSuccess={() => {
+            loadDashboardData();
+            loadWorkList(activeTab);
+          }}
+        />
+      )}
+
+      {isAvailabilityOpen && (
+        <AvailabilityModal
+          isOpen={isAvailabilityOpen}
+          onClose={() => setIsAvailabilityOpen(false)}
+          currentAvailability={availability}
+          onSuccess={(newAvail) => {
+            setAvailability(newAvail);
+            loadDashboardData();
+          }}
+        />
+      )}
     </div>
   );
 }

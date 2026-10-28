@@ -91,6 +91,12 @@ model Application {
   workflowInstance     WorkflowInstance?
   decision             ApplicationDecision?
   appeals              Appeal[]
+  priority             String                @default("NORMAL")
+  priorityReason       String?
+  prioritySetById      String?
+  prioritySetAt        DateTime?
+  messages             ApplicationMessage[]
+  delegations          WorkDelegation[]
 }
 
 model ApplicationDocument {
@@ -369,6 +375,11 @@ model Staff {
   reportSubmissions  ReviewReport[]
   stageHistories     StageActionHistory[]  @relation("ActorStaff")
   decisions          ApplicationDecision[]
+  sentMessages       ApplicationMessage[]  @relation("SentMessages")
+  receivedMessages   ApplicationMessage[]  @relation("ReceivedMessages")
+  delegationsCreated WorkDelegation[]      @relation("DelegatedByStaff")
+  delegationsReceived WorkDelegation[]     @relation("DelegatedToStaff")
+  availability       StaffAvailability?
 }
 
 model StaffRoleAssignment {
@@ -617,5 +628,69 @@ model Appeal {
   decidedAt          DateTime?
   createdAt          DateTime    @default(now())
   updatedAt          DateTime    @updatedAt
+}
+
+// Application-linked internal officer messaging
+model ApplicationMessage {
+  id               String       @id @default(cuid())
+  applicationId    String
+  application      Application  @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  workflowStageId  String?
+  senderStaffId    String
+  senderStaff      Staff        @relation("SentMessages", fields: [senderStaffId], references: [id], onDelete: Cascade)
+  recipientStaffId String
+  recipientStaff   Staff        @relation("ReceivedMessages", fields: [recipientStaffId], references: [id], onDelete: Cascade)
+  subject          String?
+  message          String
+  readAt           DateTime?
+  createdAt        DateTime     @default(now())
+
+  @@index([applicationId, createdAt])
+  @@index([recipientStaffId, readAt])
+}
+
+// Temporary work delegation for specific tasks/sub-tasks
+model WorkDelegation {
+  id              String      @id @default(cuid())
+  applicationId   String
+  application     Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  workflowStageId String?
+  primaryOwnerId  String?
+  delegatedById   String
+  delegatedBy     Staff       @relation("DelegatedByStaff", fields: [delegatedById], references: [id], onDelete: Cascade)
+  delegatedToId   String
+  delegatedTo     Staff       @relation("DelegatedToStaff", fields: [delegatedToId], references: [id], onDelete: Cascade)
+  taskTitle       String
+  taskDescription String
+  priority        String      @default("NORMAL") // NORMAL, IMPORTANT, URGENT
+  priorityReason  String?
+  reason          String      // Planned Leave, Workload Distribution, Domain Expertise, Supervisor Instruction, Temporary Unavailability, Other
+  notes           String?
+  deadline        DateTime?
+  status          String      @default("PENDING") // PENDING, ACCEPTED, DECLINED, IN_PROGRESS, COMPLETED, CANCELLED, EXPIRED
+  createdAt       DateTime    @default(now())
+  acceptedAt      DateTime?
+  declinedAt      DateTime?
+  declineReason   String?
+  startedAt       DateTime?
+  completedAt     DateTime?
+  completionNotes String?
+
+  @@index([delegatedToId, status])
+  @@index([delegatedById, status])
+  @@index([applicationId])
+}
+
+// Staff availability and work continuity
+model StaffAvailability {
+  id             String    @id @default(cuid())
+  staffId        String    @unique
+  staff          Staff     @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  status         String    @default("AVAILABLE") // AVAILABLE, ON_LEAVE, TEMPORARILY_UNAVAILABLE
+  availableFrom  DateTime?
+  availableUntil DateTime?
+  reason         String?
+  note           String?
+  updatedAt      DateTime  @default(now()) @updatedAt
 }
 

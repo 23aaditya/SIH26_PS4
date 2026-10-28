@@ -7,8 +7,117 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { StatusBadge, SlaCountdown } from "@/components/shared/StatusBadge";
 import { dataService } from "@/lib/dataService";
-import { APPLICATION_CATEGORIES, APPLICATION_CATEGORY_LABELS } from "@/lib/types";
-import { Plus, Search, FileText, Edit, ArrowRight, Loader2 } from "lucide-react";
+import { Plus, Search, FileText, Edit, ArrowRight, Loader2, User, AlertCircle } from "lucide-react";
+
+const KNOWN_OFFICERS = {
+  "DEMO-AIC-034": {
+    name: "Dr. R. K. Sharma",
+    code: "DEMO-AIC-034",
+    role: "Scrutiny Committee Member",
+    bureau: "Approval Bureau (Western/Northern)",
+  },
+  "DEMO-AIC-037": {
+    name: "Dr. Neha Rao",
+    code: "DEMO-AIC-037",
+    role: "EVC Inspection Coordinator",
+    bureau: "Regional Inspection Committee",
+  },
+  "DEMO-AIC-013": {
+    name: "Shri Karan Sinha",
+    code: "DEMO-AIC-013",
+    role: "Regional Officer / Bureau Officer",
+    bureau: "Standing Hearing & Approval Bureau",
+  },
+  "DEMO-AIC-001": {
+    name: "Super Administrator",
+    code: "DEMO-AIC-001",
+    role: "AICTE Headquarter Executive",
+    bureau: "Central Governance Council",
+  },
+};
+
+function getWorkingOfficer(app) {
+  if (!app) return null;
+  if (app.workflowInstance?.stages) {
+    const activeStage =
+      app.workflowInstance.stages.find(
+        (s) =>
+          (s.stageKey === app.currentStageId || s.stageKey === app.workflowInstance?.currentStageKey) &&
+          !["COMPLETED", "SKIPPED"].includes(s.stageStatus)
+      ) ||
+      app.workflowInstance.stages.find(
+        (s) => s.stageStatus === "ASSIGNED" || s.stageStatus === "IN_PROGRESS"
+      );
+
+    if (activeStage?.assignedStaff) {
+      return {
+        name: activeStage.assignedStaff.name,
+        code: activeStage.assignedStaff.employeeCode || activeStage.assignedStaff.id,
+        role: activeStage.assignedStaff.role || activeStage.stageName,
+      };
+    }
+  }
+
+  if (app.assignedUserId && KNOWN_OFFICERS[app.assignedUserId]) {
+    return KNOWN_OFFICERS[app.assignedUserId];
+  }
+
+  if (app.currentStageId === "scrutiny" || app.status === "in_review") {
+    return KNOWN_OFFICERS["DEMO-AIC-034"];
+  } else if (app.currentStageId === "evc" || app.status === "pending_evc") {
+    return KNOWN_OFFICERS["DEMO-AIC-037"];
+  } else if (app.currentStageId === "committee" || app.currentStageId === "decision") {
+    return KNOWN_OFFICERS["DEMO-AIC-013"];
+  }
+
+  return {
+    name: "Dr. R. K. Sharma",
+    code: app.assignedUserId || "DEMO-AIC-034",
+    role: app.currentAssigneeRole?.replace(/_/g, " ").toUpperCase() || "Scrutiny Officer",
+  };
+}
+
+function getNextLevelInfo(app) {
+  if (!app) return null;
+  const currentKey = app.currentStageId || "scrutiny";
+
+  if (currentKey === "verification") {
+    return {
+      stageName: "Scrutiny Review",
+      assignedOfficer: "Dr. R. K. Sharma",
+    };
+  }
+
+  if (currentKey === "scrutiny" || currentKey === "re_scrutiny") {
+    if (app.requiresEvc) {
+      return {
+        stageName: "EVC Inspection",
+        assignedOfficer: "Dr. Neha Rao",
+      };
+    } else {
+      return {
+        stageName: "Standing Hearing Committee",
+        assignedOfficer: "Shri Karan Sinha",
+      };
+    }
+  }
+
+  if (currentKey === "evc") {
+    return {
+      stageName: "Standing Hearing Committee",
+      assignedOfficer: "Shri Karan Sinha",
+    };
+  }
+
+  if (currentKey === "committee") {
+    return {
+      stageName: "Competent Authority Approval",
+      assignedOfficer: "Executive Committee",
+    };
+  }
+
+  return null;
+}
 
 function ApplicationsContent() {
   const { userProfile } = useAuth();
@@ -183,6 +292,9 @@ function ApplicationsContent() {
                     app.applicationCategory ||
                     "General Application";
                   const isDraft = app.status === "draft";
+                  const workingOfficer = getWorkingOfficer(app);
+                  const nextLevel = getNextLevelInfo(app);
+                  const needsAction = app.status === "awaiting_institution" || app.status === "deficiency_raised";
 
                   return (
                     <tr key={app.id} className="hover:bg-slate-50/80 transition-colors">
@@ -197,13 +309,33 @@ function ApplicationsContent() {
                       <td className="py-3 px-4 text-slate-800 font-medium max-w-xs truncate">
                         {typeLabel}
                       </td>
-                      <td className="py-3 px-4 text-slate-700 font-medium">
-                        {isDraft ? "Draft Composition" : app.currentStageName || "Scrutiny Verification"}
+                      <td className="py-3 px-4">
+                        <p className="font-semibold text-slate-800">{isDraft ? "Draft Composition" : app.currentStageName || "Scrutiny Verification"}</p>
+                        {!isDraft && workingOfficer && (
+                          <div className="flex items-center gap-1.5 mt-1 text-[11px] text-slate-600">
+                            <User className="h-3 w-3 text-slate-400 shrink-0" />
+                            <span className="font-medium text-slate-700">{workingOfficer.name}</span>
+                            <span className="text-[10px] text-slate-400">({workingOfficer.role})</span>
+                          </div>
+                        )}
+                        {!isDraft && nextLevel && (
+                          <div className="flex items-center gap-1 mt-0.5 text-[10px] text-blue-600 font-medium">
+                            <ArrowRight className="h-2.5 w-2.5 shrink-0" />
+                            <span>Next: {nextLevel.stageName}</span>
+                          </div>
+                        )}
                       </td>
-                      <td className="py-3 px-4 text-slate-500 text-[11px] max-w-xs truncate">
-                        {isDraft
-                          ? "Complete required fields & upload documents"
-                          : app.nextActionDescription || "Under examination by AICTE Scrutiny Committee"}
+                      <td className="py-3 px-4 text-slate-600 text-[11px] max-w-xs">
+                        {isDraft ? (
+                          <span className="text-slate-500">Complete required fields & upload documents</span>
+                        ) : needsAction ? (
+                          <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-50 border border-amber-200 text-amber-900 font-semibold text-[10.5px]">
+                            <AlertCircle className="h-3 w-3 text-amber-600 shrink-0" />
+                            <span>Action: Re-Scrutiny / Grievance</span>
+                          </div>
+                        ) : (
+                          <span>{app.nextActionDescription || `Under examination by ${workingOfficer?.name || "AICTE Scrutiny Committee"}`}</span>
+                        )}
                       </td>
                       <td className="py-3 px-4">
                         <StatusBadge status={app.status} />
@@ -217,6 +349,12 @@ function ApplicationsContent() {
                             <Button size="sm" className="h-7 text-xs px-2.5 bg-blue-600 hover:bg-blue-700 text-white font-medium shadow-2xs">
                               <Edit className="h-3 w-3 mr-1" />
                               Continue Draft
+                            </Button>
+                          </Link>
+                        ) : needsAction ? (
+                          <Link href={`/institution/applications/${app.id}`}>
+                            <Button size="sm" className="h-7 text-xs px-2.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold shadow-2xs">
+                              Take Action
                             </Button>
                           </Link>
                         ) : (

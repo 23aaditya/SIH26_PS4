@@ -33,6 +33,16 @@ export const scrutinyController = {
           deficiencies: {
             where: { status: "pending" },
           },
+          workflowInstance: {
+            include: {
+              stages: {
+                include: { assignedStaff: true },
+              },
+            },
+          },
+          appeals: {
+            orderBy: { createdAt: "desc" },
+          },
         },
       });
 
@@ -86,6 +96,21 @@ export const scrutinyController = {
           },
           tasks: {
             orderBy: { createdAt: "desc" },
+          },
+          appeals: {
+            orderBy: { createdAt: "desc" },
+          },
+          decision: true,
+          workflowInstance: {
+            include: {
+              stages: {
+                orderBy: { sequenceOrder: "asc" },
+                include: {
+                  assignedStaff: { select: { id: true, name: true, employeeCode: true, email: true, role: true } },
+                  reports: { include: { submittedBy: { select: { id: true, name: true, employeeCode: true } } } },
+                },
+              },
+            },
           },
         },
       });
