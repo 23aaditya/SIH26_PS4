@@ -7,10 +7,16 @@ export const applicationService = {
     let institutionId = user.institutionId;
     if (!institutionId && user.email) {
       const u = await prisma.user.findUnique({ where: { email: user.email } });
-      institutionId = u?.institutionId || "inst-001";
+      institutionId = u?.institutionId;
+    }
+    if (!institutionId && user.accountType === "institution") {
+      throw new Error("Associated institution profile not found for user account.");
     }
     if (!institutionId) {
-      institutionId = "inst-001";
+      institutionId = data.institutionId;
+    }
+    if (!institutionId) {
+      throw new Error("Institution ID is required to save an application.");
     }
 
     const institution = await prisma.institution.findUnique({

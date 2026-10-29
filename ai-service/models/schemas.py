@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 class RuleFinding(BaseModel):
     rule_id: str
     rule_name: str
-    status: Literal["COMPLIANT", "DEFICIENT", "NEEDS_HUMAN_REVIEW"]
+    status: Literal["COMPLIANT", "DEFICIENT", "NEEDS_HUMAN_REVIEW", "NOT_APPLICABLE", "TECHNICAL_ERROR"]
     aph_clause: str
     evidence: str
     page_number: Optional[int] = None
@@ -12,6 +12,9 @@ class RuleFinding(BaseModel):
     document_name: Optional[str] = None
     recommendation: str
     notes: Optional[str] = None
+    aph_chapter: Optional[str] = None
+    aph_annexure: Optional[str] = None
+    is_common_check: bool = False
 
 class PreCheckResult(BaseModel):
     application_id: str
@@ -21,6 +24,9 @@ class PreCheckResult(BaseModel):
     summary: str
     findings: List[RuleFinding]
     handbook_version: str = "APH 2024-2027"
+    category: Optional[str] = None
+    category_label: Optional[str] = None
+    unsupported_category: bool = False
 
 class TriggerJobRequest(BaseModel):
     application_id: str
@@ -103,4 +109,9 @@ class LLMAnalysisResult(BaseModel):
     findings: List[LLMFinding] = []
     summary: Optional[str] = None
     error_message: Optional[str] = None
+    http_status: Optional[int] = None
+    requested_tokens: Optional[int] = None
+    token_limit: Optional[int] = None
+    total_batches: Optional[int] = None
+    successful_batches: Optional[int] = None
 

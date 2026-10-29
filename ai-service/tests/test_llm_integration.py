@@ -623,3 +623,291 @@ def test_api_health_endpoint_reports_llm_status():
     assert "gsk_" not in json.dumps(data)
 
 
+# -----------------------------------------------------------------------------
+# PHASE 3.6 / GROQ HTTP 413 & BOUNDED BATCHING TESTS
+# -----------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_groq_http_413_no_retry_and_token_extraction(monkeypatch):
+    """
+    Test that Groq HTTP 413 Request Entity Too Large is never repeatedly retried,
+    and extracts requested tokens and token limits accurately.
+    """
+    from groq import APIStatusError
+    from llm.client import extract_groq_error_details
+
+    monkeypatch.setattr(settings, "GROQ_ENABLED", True)
+    monkeypatch.setattr(settings, "GROQ_API_KEY", "gsk_mock_test_key_12345")
+
+    client = GroqScrutinyClient()
+    mock_groq_sdk = AsyncMock()
+
+    # Simulate Groq 413 API error with token diagnostic counts
+    err_msg = (
+        "Error code: 413 - {'error': {'message': "
+        "'Request too large for model `qwen/qwen3.8-27b` in organization `org_corp123`: "
+        "Limit 6000, Requested 14250. Please try again with fewer tokens.', 'type': 'tokens', 'code': 'rate_limit_exceeded'}}"
+    )
+    status_err = APIStatusError(
+        message=err_msg,
+        response=MagicMock(status_code=413),
+        body={
+            "error": {
+                "message": "Request too large for model `qwen/qwen3.8-27b`: Limit 6000, Requested 14250.",
+                "code": "rate_limit_exceeded",
+                "type": "tokens",
+            }
+        },
+    )
+    mock_groq_sdk.chat.completions.create.side_effect = status_err
+
+    with patch.object(client, "_get_client", return_value=mock_groq_sdk):
+        res = await client.generate_chat_completion(
+            system_prompt="Test System",
+            user_prompt="Oversized User Prompt",
+            model="qwen/qwen3.8-27b",
+        )
+
+        # Assert called ONLY ONCE: do not retry an unchanged oversized request
+        assert mock_groq_sdk.chat.completions.create.call_count == 1
+        assert res["status"] == "TECHNICAL_FAILURE"
+        assert res["http_status"] == 413
+        assert res["requested_tokens"] == 14250
+        assert res["token_limit"] == 6000
+        assert "HTTP 413" in res["error_message"]
+        assert "14,250" in res["error_message"]
+        assert "6,000" in res["error_message"]
+        # Assert organization ID was redacted
+        assert "org_corp123" not in res["error_message"]
+
+
+def test_extract_groq_error_details_sanitization():
+    """Verify regex token parsing and secret credential redaction."""
+    from llm.client import extract_groq_error_details
+
+    raw_err = (
+        "Rate limit reached for model `qwen/qwen3.8-27b` with key gsk_testsecret1234567890 "
+        "and org org_testorg456: Limit 6,000 tokens, Requested 18,500 tokens."
+    )
+    status, req, lim, clean = extract_groq_error_details(Exception(raw_err))
+
+    assert status == 413
+    assert req == 18500
+    assert lim == 6000
+    assert "gsk_testsecret1234567890" not in clean
+    assert "org_testorg456" not in clean
+    assert "[REDACTED_API_KEY]" in clean or "[REDACTED" in clean
+
+
+@pytest.mark.asyncio
+async def test_groq_bounded_document_batching_success(monkeypatch):
+    """
+    Test that multi-document applications are grouped into bounded batches,
+    analyzed in sequence, and have their findings and summaries synthesized.
+    """
+    monkeypatch.setattr(settings, "GROQ_ENABLED", True)
+    monkeypatch.setattr(settings, "GROQ_API_KEY", "gsk_mock_test_key_12345")
+    monkeypatch.setattr(settings, "GROQ_BATCH_MAX_CHARS", 4000)
+    monkeypatch.setattr(settings, "GROQ_DOCS_PER_BATCH", 2)
+
+    # 4 distinct application documents
+    multi_docs = {
+        "doc-01": {"filename": "Fire_NOC.pdf", "full_text": "Fire safety certificate valid through 2028."},
+        "doc-02": {"filename": "Occupancy_Cert.pdf", "full_text": "Building occupancy certificate approved."},
+        "doc-03": {"filename": "Land_Deed.pdf", "full_text": "Land title deed registered for 5.2 acres."},
+        "doc-04": {"filename": "Trust_Resolution.pdf", "full_text": "Governing body resolution passed on 12/01/2026."},
+    }
+
+    mock_client = MagicMock()
+    # Batch 1 response
+    b1_resp = {
+        "raw_content": json.dumps({
+            "summary": "Batch 1 verified fire safety and occupancy.",
+            "findings": [
+                {
+                    "finding_type": "QUALITATIVE_OBSERVATION",
+                    "explanation": "Fire safety certificate is valid through 2028.",
+                    "severity_suggestion": "ADVISORY_LOW",
+                    "evidence_excerpt": "valid through 2028",
+                    "document_id": "doc-01",
+                    "document_name": "Fire_NOC.pdf",
+                    "page_number": 1,
+                    "confidence": 0.95,
+                    "human_review_recommendation": "Confirm annual inspection status.",
+                }
+            ],
+        }),
+        "model_used": "qwen/qwen3.8-27b",
+        "status": "SUCCESS",
+        "error_message": None,
+        "http_status": 200,
+        "requested_tokens": None,
+        "token_limit": None,
+    }
+    # Batch 2 response
+    b2_resp = {
+        "raw_content": json.dumps({
+            "summary": "Batch 2 verified land deed and trust resolution.",
+            "findings": [
+                {
+                    "finding_type": "CONTEXTUAL_INCONSISTENCY",
+                    "explanation": "Resolution date is recent.",
+                    "severity_suggestion": "ADVISORY_MEDIUM",
+                    "evidence_excerpt": "passed on 12/01/2026",
+                    "document_id": "doc-04",
+                    "document_name": "Trust_Resolution.pdf",
+                    "page_number": 1,
+                    "confidence": 0.88,
+                    "human_review_recommendation": "Verify governing body quorum.",
+                }
+            ],
+        }),
+        "model_used": "qwen/qwen3.8-27b",
+        "status": "SUCCESS",
+        "error_message": None,
+        "http_status": 200,
+        "requested_tokens": None,
+        "token_limit": None,
+    }
+
+    mock_client.generate_chat_completion = AsyncMock(side_effect=[b1_resp, b2_resp])
+    agent = ScrutinyAgent(client=mock_client)
+
+    # Verify batch partition logic
+    batches = agent.create_document_batches(multi_docs, max_chars_per_batch=4000, max_docs_per_batch=2)
+    assert len(batches) == 2
+
+    # Execute scrutiny
+    result = await agent.analyze_application(
+        app_data=SAMPLE_APP_DATA,
+        extracted_docs=multi_docs,
+        deterministic_findings=SAMPLE_DETERMINISTIC_FINDINGS,
+    )
+
+    assert result.status == "SUCCESS"
+    assert result.total_batches == 2
+    assert result.successful_batches == 2
+    assert len(result.findings) == 2
+    assert result.findings[0].document_id == "doc-01"
+    assert result.findings[1].document_id == "doc-04"
+    assert "Batch 1 verified" in result.summary
+    assert "Batch 2 verified" in result.summary
+
+
+@pytest.mark.asyncio
+async def test_groq_partial_batch_failure_preserves_successful_findings(monkeypatch):
+    """
+    Test that when one batch succeeds and another batch encounters HTTP 413,
+    the overall result reports PARTIAL_ANALYSIS, retains the successful findings,
+    does NOT fabricate missing results, and reports explicit batch diagnostics.
+    """
+    monkeypatch.setattr(settings, "GROQ_ENABLED", True)
+    monkeypatch.setattr(settings, "GROQ_API_KEY", "gsk_mock_test_key_12345")
+    monkeypatch.setattr(settings, "GROQ_BATCH_MAX_CHARS", 4000)
+    monkeypatch.setattr(settings, "GROQ_DOCS_PER_BATCH", 2)
+
+    multi_docs = {
+        "doc-01": {"filename": "DocA.pdf", "full_text": "Valid document text A."},
+        "doc-02": {"filename": "DocB.pdf", "full_text": "Valid document text B."},
+        "doc-03": {"filename": "DocC.pdf", "full_text": "Oversized document text C."},
+        "doc-04": {"filename": "DocD.pdf", "full_text": "Oversized document text D."},
+    }
+
+    mock_client = MagicMock()
+    # Batch 1 succeeds
+    b1_success = {
+        "raw_content": json.dumps({
+            "summary": "Batch 1 findings extracted.",
+            "findings": [
+                {
+                    "finding_type": "QUALITATIVE_OBSERVATION",
+                    "explanation": "Valid observation on DocA.",
+                    "severity_suggestion": "ADVISORY_LOW",
+                    "evidence_excerpt": "Valid document text A",
+                    "document_id": "doc-01",
+                    "document_name": "DocA.pdf",
+                    "page_number": 1,
+                    "confidence": 0.9,
+                    "human_review_recommendation": "Review DocA.",
+                }
+            ],
+        }),
+        "model_used": "qwen/qwen3.8-27b",
+        "status": "SUCCESS",
+        "error_message": None,
+        "http_status": 200,
+        "requested_tokens": None,
+        "token_limit": None,
+    }
+    # Batch 2 fails with HTTP 413
+    b2_413_failure = {
+        "raw_content": None,
+        "model_used": "qwen/qwen3.8-27b",
+        "status": "TECHNICAL_FAILURE",
+        "error_message": "Groq request entity too large (HTTP 413): Requested 11,200 tokens exceeds model limit of 6,000 tokens.",
+        "http_status": 413,
+        "requested_tokens": 11200,
+        "token_limit": 6000,
+    }
+
+    mock_client.generate_chat_completion = AsyncMock(side_effect=[b1_success, b2_413_failure])
+    agent = ScrutinyAgent(client=mock_client)
+
+    result = await agent.analyze_application(
+        app_data=SAMPLE_APP_DATA,
+        extracted_docs=multi_docs,
+        deterministic_findings=SAMPLE_DETERMINISTIC_FINDINGS,
+    )
+
+    # Assert status is PARTIAL_ANALYSIS
+    assert result.status == "PARTIAL_ANALYSIS"
+    assert result.total_batches == 2
+    assert result.successful_batches == 1
+    # Assert Batch 1 finding is preserved
+    assert len(result.findings) == 1
+    assert result.findings[0].document_id == "doc-01"
+    # Assert token diagnostics and explicit error message
+    assert result.http_status == 413
+    assert result.requested_tokens == 11200
+    assert result.token_limit == 6000
+    assert "partially completed" in result.error_message
+    assert "HTTP 413" in result.error_message
+    assert "Partial Analysis: 1/2" in result.summary
+
+
+@pytest.mark.asyncio
+async def test_groq_http_429_quota_exceeded_does_not_retry(monkeypatch):
+    """
+    Test that HTTP 429 due to quota exhaustion does not repeatedly retry,
+    while RPM rate limit allows bounded retries with backoff.
+    """
+    from groq import RateLimitError
+
+    monkeypatch.setattr(settings, "GROQ_ENABLED", True)
+    monkeypatch.setattr(settings, "GROQ_API_KEY", "gsk_mock_test_key_12345")
+
+    client = GroqScrutinyClient()
+    mock_groq_sdk = AsyncMock()
+
+    # Quota error message
+    quota_err = RateLimitError(
+        message="Organization token quota exceeded. Please upgrade your billing plan.",
+        response=MagicMock(status_code=429),
+        body={"error": {"message": "Organization token quota exceeded."}},
+    )
+    mock_groq_sdk.chat.completions.create.side_effect = quota_err
+
+    with patch.object(client, "_get_client", return_value=mock_groq_sdk):
+        res = await client.generate_chat_completion(
+            system_prompt="Test",
+            user_prompt="Test",
+            model="qwen/qwen3.8-27b",
+        )
+
+        # Quota limit must NOT retry (call count == 1)
+        assert mock_groq_sdk.chat.completions.create.call_count == 1
+        assert res["status"] == "TECHNICAL_FAILURE"
+        assert res["http_status"] == 429
+        assert "quota exceeded" in res["error_message"].lower()
+
+

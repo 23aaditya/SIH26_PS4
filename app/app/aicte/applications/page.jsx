@@ -10,35 +10,11 @@ import { dataService } from "@/lib/dataService";
 import { APPLICATION_CATEGORIES, APPLICATION_CATEGORY_LABELS, getApplicationCategoryLabel } from "@/lib/types";
 import { Search, FileText, User, ArrowRight, ShieldCheck, ArrowUpRight, Inbox } from "lucide-react";
 
-const KNOWN_OFFICERS = {
-  "DEMO-AIC-034": {
-    name: "Dr. R. K. Sharma",
-    code: "DEMO-AIC-034",
-    role: "Scrutiny Committee Member",
-    bureau: "Approval Bureau (Western/Northern)",
-  },
-  "DEMO-AIC-037": {
-    name: "Dr. Neha Rao",
-    code: "DEMO-AIC-037",
-    role: "EVC Inspection Coordinator",
-    bureau: "Regional Inspection Committee",
-  },
-  "DEMO-AIC-013": {
-    name: "Shri Karan Sinha",
-    code: "DEMO-AIC-013",
-    role: "Regional Officer / Bureau Officer",
-    bureau: "Standing Hearing & Approval Bureau",
-  },
-  "DEMO-AIC-001": {
-    name: "Super Administrator",
-    code: "DEMO-AIC-001",
-    role: "AICTE Headquarter Executive",
-    bureau: "Central Governance Council",
-  },
-};
-
 function getWorkingOfficer(app, userProfile) {
   if (!app) return null;
+  const currentOfficerCode = userProfile?.employeeCode || userProfile?.uid;
+
+  // 1. Check assignedStaff on current active stage
   if (app.workflowInstance?.stages) {
     const activeStage =
       app.workflowInstance.stages.find(
@@ -51,30 +27,48 @@ function getWorkingOfficer(app, userProfile) {
       );
 
     if (activeStage?.assignedStaff) {
+      const code = activeStage.assignedStaff.employeeCode || activeStage.assignedStaff.id;
+      const isMe = Boolean(currentOfficerCode && (code === currentOfficerCode || activeStage.assignedStaff.email === userProfile?.email));
       return {
         name: activeStage.assignedStaff.name,
-        code: activeStage.assignedStaff.employeeCode || activeStage.assignedStaff.id,
-        role: activeStage.assignedStaff.role || activeStage.stageName,
+        code,
+        role: activeStage.assignedStaff.designation?.title || activeStage.stageName,
+        isMe,
+        isAssigned: true,
       };
     }
   }
 
-  if (app.assignedUserId && KNOWN_OFFICERS[app.assignedUserId]) {
-    return KNOWN_OFFICERS[app.assignedUserId];
+  // 2. Check application-level assignedUserId
+  if (app.assignedUserId) {
+    const isMe = Boolean(currentOfficerCode && app.assignedUserId === currentOfficerCode);
+    if (isMe) {
+      return {
+        name: userProfile?.displayName || userProfile?.name || "Assigned to You",
+        code: app.assignedUserId,
+        role: "Primary Reviewer",
+        isMe: true,
+        isAssigned: true,
+      };
+    }
+
+    return {
+      name: `Officer (${app.assignedUserId})`,
+      code: app.assignedUserId,
+      role: app.currentAssigneeRole?.replace(/_/g, " ").toUpperCase() || "Assigned Officer",
+      isMe: false,
+      isAssigned: true,
+    };
   }
 
-  if (app.currentStageId === "scrutiny" || app.status === "in_review") {
-    return KNOWN_OFFICERS["DEMO-AIC-034"];
-  } else if (app.currentStageId === "evc" || app.status === "pending_evc") {
-    return KNOWN_OFFICERS["DEMO-AIC-037"];
-  } else if (app.currentStageId === "committee" || app.currentStageId === "decision") {
-    return KNOWN_OFFICERS["DEMO-AIC-013"];
-  }
-
+  // 3. Not personally assigned -> Committee Role Pool
   return {
-    name: userProfile?.name || "Dr. R. K. Sharma",
-    code: app.assignedUserId || "DEMO-AIC-034",
-    role: app.currentAssigneeRole?.replace(/_/g, " ").toUpperCase() || "Scrutiny Officer",
+    name: "Committee Pool",
+    code: "UNASSIGNED",
+    role: app.currentStageName || "Scrutiny Pool",
+    isMe: false,
+    isAssigned: false,
+    isPool: true,
   };
 }
 
@@ -85,7 +79,7 @@ function getNextLevelInfo(app) {
   if (currentKey === "verification") {
     return {
       stageName: "Scrutiny Review",
-      assignedOfficer: "Dr. R. K. Sharma",
+      assignedOfficer: "Scrutiny Committee",
     };
   }
 
@@ -93,12 +87,12 @@ function getNextLevelInfo(app) {
     if (app.requiresEvc) {
       return {
         stageName: "EVC Inspection",
-        assignedOfficer: "Dr. Neha Rao",
+        assignedOfficer: "EVC Coordinator",
       };
     } else {
       return {
         stageName: "Standing Hearing Committee",
-        assignedOfficer: "Shri Karan Sinha",
+        assignedOfficer: "SHC Hearing Committee",
       };
     }
   }
@@ -106,7 +100,7 @@ function getNextLevelInfo(app) {
   if (currentKey === "evc") {
     return {
       stageName: "Standing Hearing Committee",
-      assignedOfficer: "Shri Karan Sinha",
+      assignedOfficer: "SHC Hearing Committee",
     };
   }
 
@@ -345,10 +339,22 @@ function ApplicationQueueContent() {
                       <td className="py-3 px-4">
                         <p className="font-semibold text-slate-800">{app.currentStageName}</p>
                         {workingOfficer && (
-                          <div className="flex items-center gap-1.5 mt-1 text-[11px] text-slate-600">
+                          <div className="flex items-center gap-1.5 mt-1 text-[11px]">
                             <User className="h-3 w-3 text-slate-400 shrink-0" />
-                            <span className="font-medium text-slate-700">{workingOfficer.name}</span>
-                            <span className="text-[10px] text-slate-400">({workingOfficer.role})</span>
+                            <span className={`font-medium ${workingOfficer.isMe ? "text-indigo-700 font-bold" : workingOfficer.isPool ? "text-amber-700 italic" : "text-slate-700"}`}>
+                              {workingOfficer.name}
+                            </span>
+                            {workingOfficer.isMe ? (
+                              <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                Assigned to You
+                              </span>
+                            ) : workingOfficer.isPool ? (
+                              <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                                Committee Pool
+                              </span>
+                            ) : (
+                              <span className="text-[10px] text-slate-400">({workingOfficer.role})</span>
+                            )}
                           </div>
                         )}
                         {nextLevel && (

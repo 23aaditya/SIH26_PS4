@@ -1,6 +1,7 @@
 "use client";
 import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { DEMO_USERS } from "@/lib/mockData";
+import { dataService } from "@/lib/dataService";
 
 const AuthContext = createContext({
   firebaseUser: null,
@@ -82,6 +83,7 @@ export function AuthProvider({ children }) {
   }, [fetchSession]);
 
   const switchDemoUser = useCallback(async (uid) => {
+    dataService.clearCache();
     try {
       const res = await fetch(`${API_BASE}/auth/switch-demo`, {
         method: "POST",
@@ -96,6 +98,7 @@ export function AuthProvider({ children }) {
           localStorage.setItem(DEMO_USER_KEY, uid);
         }
         setIsDemoMode(true);
+        dataService.sync();
         return;
       }
     } catch (e) {
@@ -113,6 +116,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   const signOut = useCallback(async () => {
+    dataService.clearCache();
     try {
       await fetch(`${API_BASE}/auth/logout`, { method: "POST", credentials: "include" });
     } catch {

@@ -4,7 +4,8 @@ Handles API key management, JSON mode chat completions, and resilient error reco
 Never logs secrets, tokens, or untrusted payload contents.
 """
 import logging
-from typing import Optional, Dict, Any
+import re
+from typing import Optional, Dict, Any, Tuple
 
 from config import settings
 from models.schemas import LLMAnalysisResult
@@ -23,6 +24,76 @@ except ImportError:
     APIStatusError = Exception
     GROQ_SDK_AVAILABLE = False
     logger.warning("Groq SDK is not installed in current Python environment.")
+
+
+def extract_groq_error_details(e: Any) -> Tuple[Optional[int], Optional[int], Optional[int], str]:
+    """
+    Extract (http_status, requested_tokens, token_limit, sanitized_message)
+    from a Groq exception or error payload.
+    Redacts secrets and internal identifiers while preserving regulatory and token diagnostics.
+    """
+    status_code = getattr(e, "status_code", None)
+    raw_str = str(e)
+    body = getattr(e, "body", None)
+    if isinstance(body, dict):
+        err_dict = body.get("error", {})
+        if isinstance(err_dict, dict) and "message" in err_dict:
+            raw_str = f"{err_dict['message']} {raw_str}"
+
+    # Extract requested and limit tokens if available in message
+    req_m = re.search(r"(?:requested|requesting)\s*[:=]?\s*(\d[\d,]*)", raw_str, re.IGNORECASE)
+    lim_m = re.search(r"(?:limit|max(?:imum)?)\s*[:=]?\s*(\d[\d,]*)", raw_str, re.IGNORECASE)
+    requested_tokens = int(req_m.group(1).replace(",", "")) if req_m else None
+    token_limit = int(lim_m.group(1).replace(",", "")) if lim_m else None
+
+    # Determine status code if not already set on exception
+    if status_code is None:
+        if "413" in raw_str or "payload too large" in raw_str.lower() or "request entity too large" in raw_str.lower():
+            status_code = 413
+        elif "429" in raw_str or "rate limit" in raw_str.lower():
+            status_code = 429
+        elif "401" in raw_str or "unauthorized" in raw_str.lower():
+            status_code = 401
+        elif "404" in raw_str:
+            status_code = 404
+
+    # Sanitize message: redact API keys, Bearer tokens, organization IDs
+    sanitized = raw_str
+    sanitized = re.sub(r"gsk_[a-zA-Z0-9_\-]+", "[REDACTED_API_KEY]", sanitized)
+    sanitized = re.sub(r"org_[a-zA-Z0-9_\-]+", "[REDACTED_ORG]", sanitized)
+    sanitized = re.sub(r"Bearer\s+[a-zA-Z0-9_\-\.]+", "Bearer [REDACTED]", sanitized)
+
+    # 1. HTTP 413 (Payload Too Large / Requested tokens exceed model token limit)
+    if status_code == 413 or (requested_tokens and token_limit and requested_tokens > token_limit):
+        status_code = 413
+        if requested_tokens and token_limit:
+            msg = (
+                f"Groq request entity too large (HTTP 413): "
+                f"Requested {requested_tokens:,} tokens exceeds model limit of {token_limit:,} tokens."
+            )
+        else:
+            msg = "Groq request entity too large (HTTP 413): Total request payload exceeded Groq model token limit."
+        return 413, requested_tokens, token_limit, msg
+
+    # 2. HTTP 429 (Rate Limit / Quota Exceeded)
+    if status_code == 429:
+        is_quota = "quota" in raw_str.lower() or "credit" in raw_str.lower() or "balance" in raw_str.lower()
+        if is_quota:
+            msg = "Groq API monthly or organization token quota exceeded. Account credit required."
+        else:
+            msg = "Groq API requests-per-minute (RPM) rate limit reached."
+        return 429, requested_tokens, token_limit, msg
+
+    # 3. HTTP 401 (Unauthorized)
+    if status_code == 401:
+        return 401, requested_tokens, token_limit, "Invalid Groq API Key or authentication failure."
+
+    # 4. HTTP 404 (Model Not Found)
+    if status_code == 404:
+        return 404, requested_tokens, token_limit, "Groq model is unavailable or not accessible with current API key."
+
+    clean_msg = re.sub(r"Error code:\s*\d+\s*-\s*", "", sanitized).strip()
+    return status_code, requested_tokens, token_limit, f"Groq API returned HTTP error {status_code or 500}: {clean_msg[:200]}"
 
 
 class GroqScrutinyClient:
@@ -74,6 +145,9 @@ class GroqScrutinyClient:
                 "model_used": settings.GROQ_MODEL,
                 "status": "DISABLED",
                 "error_message": "Groq LLM scrutiny is disabled via configuration.",
+                "http_status": None,
+                "requested_tokens": None,
+                "token_limit": None,
             }
 
         if not settings.GROQ_API_KEY or not settings.GROQ_API_KEY.strip():
@@ -83,6 +157,9 @@ class GroqScrutinyClient:
                 "model_used": settings.GROQ_MODEL,
                 "status": "SKIPPED",
                 "error_message": "GROQ_API_KEY is not set.",
+                "http_status": None,
+                "requested_tokens": None,
+                "token_limit": None,
             }
 
         if not GROQ_SDK_AVAILABLE:
@@ -93,6 +170,9 @@ class GroqScrutinyClient:
                 "model_used": settings.GROQ_MODEL,
                 "status": "TECHNICAL_FAILURE",
                 "error_message": err_msg,
+                "http_status": None,
+                "requested_tokens": None,
+                "token_limit": None,
             }
 
         client = self._get_client()
@@ -132,23 +212,44 @@ class GroqScrutinyClient:
                     "model_used": active_model,
                     "status": "SUCCESS",
                     "error_message": None,
+                    "http_status": 200,
+                    "requested_tokens": None,
+                    "token_limit": None,
                 }
 
             except RateLimitError as rle:
-                err_text = str(rle).lower()
-                is_quota = "quota" in err_text or "credit" in err_text or "balance" in err_text
-                if is_quota:
-                    sanitized_msg = "Groq API monthly or organization token quota exceeded. Account credit required."
-                    logger.warning(f"Groq Quota Exceeded: {sanitized_msg}")
+                status_code, req_tokens, lim_tokens, sanitized_msg = extract_groq_error_details(rle)
+
+                # Check if this RateLimitError is actually an oversized request (HTTP 413) or token limit overflow
+                if status_code == 413 or (req_tokens and lim_tokens and req_tokens > lim_tokens):
+                    logger.warning(
+                        f"Groq request entity too large (HTTP 413, aborting retries): {sanitized_msg}"
+                    )
                     return {
                         "raw_content": None,
                         "model_used": active_model,
                         "status": "TECHNICAL_FAILURE",
                         "error_message": sanitized_msg,
+                        "http_status": 413,
+                        "requested_tokens": req_tokens,
+                        "token_limit": lim_tokens,
                     }
-                
-                # Check for retry-after in headers or text
-                sanitized_msg = "Groq API requests-per-minute (RPM) rate limit reached."
+
+                # Quota exceeded (e.g. monthly credits exhausted): DO NOT RETRY
+                is_quota = "quota" in str(rle).lower() or "credit" in str(rle).lower() or "balance" in str(rle).lower()
+                if is_quota:
+                    logger.warning(f"Groq Quota Exceeded (aborting retries): {sanitized_msg}")
+                    return {
+                        "raw_content": None,
+                        "model_used": active_model,
+                        "status": "TECHNICAL_FAILURE",
+                        "error_message": sanitized_msg,
+                        "http_status": 429,
+                        "requested_tokens": req_tokens,
+                        "token_limit": lim_tokens,
+                    }
+
+                # RPM rate limit: back off and retry
                 if attempt < max_retries:
                     wait_sec = 2.0 * (attempt + 1)
                     logger.warning(f"Rate limited by Groq on attempt {attempt + 1}. Backing off {wait_sec}s...")
@@ -161,6 +262,9 @@ class GroqScrutinyClient:
                         "model_used": active_model,
                         "status": "TECHNICAL_FAILURE",
                         "error_message": f"{sanitized_msg} Retry limit reached. Please re-run scrutiny in a moment.",
+                        "http_status": 429,
+                        "requested_tokens": req_tokens,
+                        "token_limit": lim_tokens,
                     }
 
             except APITimeoutError:
@@ -175,6 +279,9 @@ class GroqScrutinyClient:
                     "model_used": active_model,
                     "status": "TECHNICAL_FAILURE",
                     "error_message": sanitized_msg,
+                    "http_status": 408,
+                    "requested_tokens": None,
+                    "token_limit": None,
                 }
 
             except APIConnectionError as ce:
@@ -188,18 +295,57 @@ class GroqScrutinyClient:
                     "model_used": active_model,
                     "status": "TECHNICAL_FAILURE",
                     "error_message": sanitized_msg,
+                    "http_status": None,
+                    "requested_tokens": None,
+                    "token_limit": None,
                 }
 
             except APIStatusError as e:
-                status_code = getattr(e, "status_code", 500)
-                if status_code == 401:
-                    sanitized_msg = "Invalid Groq API Key or authentication failure."
-                elif status_code == 404:
-                    sanitized_msg = f"Groq model '{active_model}' is unavailable or not accessible with current API key."
-                elif status_code == 429:
-                    sanitized_msg = "Groq API rate limit or organization quota reached."
-                else:
-                    sanitized_msg = f"Groq API returned HTTP error status {status_code}."
+                status_code, req_tokens, lim_tokens, sanitized_msg = extract_groq_error_details(e)
+
+                # HTTP 413: DO NOT RETRY an unchanged oversized request!
+                if status_code == 413 or (req_tokens and lim_tokens and req_tokens > lim_tokens):
+                    logger.warning(
+                        f"Groq HTTP 413 Request Entity Too Large (aborting retries): {sanitized_msg}"
+                    )
+                    return {
+                        "raw_content": None,
+                        "model_used": active_model,
+                        "status": "TECHNICAL_FAILURE",
+                        "error_message": sanitized_msg,
+                        "http_status": 413,
+                        "requested_tokens": req_tokens,
+                        "token_limit": lim_tokens,
+                    }
+
+                # HTTP 429: Rate limit or quota
+                if status_code == 429:
+                    is_quota = "quota" in str(e).lower() or "credit" in str(e).lower() or "balance" in str(e).lower()
+                    if is_quota:
+                        logger.warning(f"Groq Quota Exceeded: {sanitized_msg}")
+                        return {
+                            "raw_content": None,
+                            "model_used": active_model,
+                            "status": "TECHNICAL_FAILURE",
+                            "error_message": sanitized_msg,
+                            "http_status": 429,
+                            "requested_tokens": req_tokens,
+                            "token_limit": lim_tokens,
+                        }
+                    if attempt < max_retries:
+                        wait_sec = 2.0 * (attempt + 1)
+                        import asyncio
+                        await asyncio.sleep(wait_sec)
+                        continue
+                    return {
+                        "raw_content": None,
+                        "model_used": active_model,
+                        "status": "TECHNICAL_FAILURE",
+                        "error_message": f"{sanitized_msg} Retry limit reached. Please re-run scrutiny in a moment.",
+                        "http_status": 429,
+                        "requested_tokens": req_tokens,
+                        "token_limit": lim_tokens,
+                    }
 
                 logger.error(f"Groq API status error: {sanitized_msg}")
                 return {
@@ -207,15 +353,22 @@ class GroqScrutinyClient:
                     "model_used": active_model,
                     "status": "TECHNICAL_FAILURE",
                     "error_message": sanitized_msg,
+                    "http_status": status_code,
+                    "requested_tokens": req_tokens,
+                    "token_limit": lim_tokens,
                 }
 
             except Exception as e:
                 logger.error(f"Unexpected error during Groq inference: {type(e).__name__}: {e}")
+                status_code, req_tokens, lim_tokens, sanitized_msg = extract_groq_error_details(e)
                 return {
                     "raw_content": None,
                     "model_used": active_model,
                     "status": "TECHNICAL_FAILURE",
-                    "error_message": f"LLM inference failure: {type(e).__name__}",
+                    "error_message": sanitized_msg or f"LLM inference failure: {type(e).__name__}",
+                    "http_status": status_code,
+                    "requested_tokens": req_tokens,
+                    "token_limit": lim_tokens,
                 }
 
     async def validate_connection(self) -> Dict[str, Any]:

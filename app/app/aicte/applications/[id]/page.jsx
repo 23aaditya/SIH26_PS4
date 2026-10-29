@@ -1168,56 +1168,139 @@ function CaseReviewContent() {
                         </div>
                       )}
 
-                      {/* Section 1: Deterministic Statutory Rules (5 Checks) */}
-                      <div>
-                        <h4 className="font-semibold text-slate-900 text-xs uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
-                          <CheckCircle2 className="h-3.5 w-3.5 text-slate-600" />
-                          Deterministic Statutory Checklist (APH 2024-2027)
-                        </h4>
-                        <div className="space-y-2">
-                          {(aiMeta?.findings || []).length === 0 ? (
-                            <p className="text-slate-400 italic">No deterministic findings recorded.</p>
-                          ) : (
-                            (aiMeta?.findings || []).map((f, idx) => (
-                              <div
-                                key={idx}
-                                className={`p-3 rounded-lg border transition ${
-                                  f.status === "COMPLIANT"
-                                    ? "bg-emerald-50/30 border-emerald-200"
-                                    : f.status === "DEFICIENT"
-                                    ? "bg-red-50/30 border-red-200"
-                                    : "bg-amber-50/30 border-amber-200"
-                                }`}
-                              >
-                                <div className="flex items-start justify-between gap-2">
-                                  <div>
-                                    <div className="flex items-center gap-2">
-                                      <span className="font-semibold text-slate-900">{f.rule_name}</span>
-                                      <span className="text-[10px] text-slate-500 font-mono bg-white px-1.5 py-0.5 rounded border border-slate-200">
+                      {/* Section 1: Deterministic Statutory Rules (Category-Aware) */}
+                      <div className="space-y-4">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-2">
+                          <div className="flex items-center gap-2">
+                            <CheckCircle2 className="h-4 w-4 text-indigo-700" />
+                            <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wider">
+                              Statutory Scrutiny Checklist (APH 2024-2027)
+                            </h4>
+                          </div>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-[11px] font-semibold bg-indigo-50 text-indigo-800 border border-indigo-200 px-2 py-0.5 rounded-md">
+                              Category: {aiMeta?.categoryLabel || getApplicationCategoryLabel(app.applicationCategory)}
+                            </span>
+                            {aiMeta?.category && (
+                              <span className="text-[10px] font-mono bg-slate-100 text-slate-600 border border-slate-200 px-1.5 py-0.5 rounded">
+                                {aiMeta.category}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Unsupported Category Alert Banner */}
+                        {aiMeta?.unsupportedCategory && (
+                          <div className="p-3.5 bg-amber-50/90 border border-amber-300 rounded-lg text-xs space-y-1.5">
+                            <div className="flex items-center gap-2 font-bold text-amber-950">
+                              <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
+                              <span>Unsupported Application Category — Manual Officer Scrutiny Required</span>
+                            </div>
+                            <p className="text-[11px] text-amber-900 leading-relaxed">
+                              This application category is not mapped to an automated statutory rule matrix under the AICTE Approval Process Handbook (APH 2024-27). Scrutiny Committee officers must conduct manual case-by-case scrutiny of all statutory submissions.
+                            </p>
+                          </div>
+                        )}
+
+                        {/* Category-Specific Statutory Checks */}
+                        {(() => {
+                          const allFindings = aiMeta?.findings || [];
+                          const categoryFindings = allFindings.filter((f) => !f.is_common_check);
+                          const commonFindings = allFindings.filter((f) => f.is_common_check);
+
+                          const renderFindingCard = (f, idx) => {
+                            const isCompliant = f.status === "COMPLIANT";
+                            const isDeficient = f.status === "DEFICIENT";
+                            const isNotApplicable = f.status === "NOT_APPLICABLE";
+                            const isTechnicalError = f.status === "TECHNICAL_ERROR";
+
+                            const cardBg = isCompliant
+                              ? "bg-emerald-50/30 border-emerald-200"
+                              : isDeficient
+                              ? "bg-red-50/30 border-red-200"
+                              : isNotApplicable
+                              ? "bg-slate-50 border-slate-200 opacity-80"
+                              : isTechnicalError
+                              ? "bg-orange-50/30 border-orange-200"
+                              : "bg-amber-50/30 border-amber-200";
+
+                            const badgeStyle = isCompliant
+                              ? "bg-emerald-100 text-emerald-800 border-emerald-300"
+                              : isDeficient
+                              ? "bg-red-100 text-red-800 border-red-300"
+                              : isNotApplicable
+                              ? "bg-slate-100 text-slate-600 border-slate-300"
+                              : isTechnicalError
+                              ? "bg-orange-100 text-orange-800 border-orange-300"
+                              : "bg-amber-100 text-amber-800 border-amber-300";
+
+                            return (
+                              <div key={idx} className={`p-3 rounded-lg border transition ${cardBg}`}>
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="space-y-1 flex-1 min-w-0">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <span className="font-semibold text-slate-900 text-xs">{f.rule_name}</span>
+                                      <span className="text-[10px] text-slate-600 font-mono bg-white px-1.5 py-0.5 rounded border border-slate-200">
                                         {f.aph_clause}
                                       </span>
+                                      {f.aph_chapter && (
+                                        <span className="text-[9px] text-slate-500 bg-slate-100 px-1 py-0.2 rounded">
+                                          {f.aph_chapter}
+                                        </span>
+                                      )}
+                                      {f.document_name && (
+                                        <span className="text-[10px] font-mono text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200">
+                                          Doc: {f.document_name}
+                                        </span>
+                                      )}
                                     </div>
-                                    <p className="text-[11px] text-slate-600 mt-1">
-                                      <strong>Evidence:</strong> {f.evidence}
+                                    <p className="text-[11px] text-slate-700 leading-relaxed">
+                                      <strong className="text-slate-900">Evidence:</strong> {f.evidence}
                                     </p>
-                                    <p className="text-[11px] text-slate-500 mt-0.5">
-                                      <strong>Recommendation:</strong> {f.recommendation}
+                                    <p className="text-[11px] text-slate-600">
+                                      <strong className="text-slate-800">Recommendation:</strong> {f.recommendation}
                                     </p>
                                   </div>
-                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase shrink-0 ${
-                                    f.status === "COMPLIANT"
-                                      ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
-                                      : f.status === "DEFICIENT"
-                                      ? "bg-red-100 text-red-800 border border-red-300"
-                                      : "bg-amber-100 text-amber-800 border border-amber-300"
-                                  }`}>
-                                    {f.status}
+                                  <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase shrink-0 border ${badgeStyle}`}>
+                                    {isNotApplicable
+                                      ? "NOT APPLICABLE"
+                                      : isTechnicalError
+                                      ? "TECH ERROR"
+                                      : f.status}
                                   </span>
                                 </div>
                               </div>
-                            ))
-                          )}
-                        </div>
+                            );
+                          };
+
+                          if (allFindings.length === 0) {
+                            return <p className="text-slate-400 italic text-xs">No deterministic findings recorded.</p>;
+                          }
+
+                          return (
+                            <div className="space-y-4">
+                              {categoryFindings.length > 0 && (
+                                <div className="space-y-2">
+                                  <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-700">
+                                    <span className="w-2 h-2 rounded-full bg-indigo-600 inline-block"></span>
+                                    Category-Specific Statutory Checks ({aiMeta?.categoryLabel || "Application Specific"})
+                                  </div>
+                                  {categoryFindings.map(renderFindingCard)}
+                                </div>
+                              )}
+
+                              {commonFindings.length > 0 && (
+                                <div className="space-y-2 pt-2 border-t border-slate-100">
+                                  <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-700">
+                                    <span className="w-2 h-2 rounded-full bg-slate-400 inline-block"></span>
+                                    Common Statutory Baseline Checks
+                                  </div>
+                                  {commonFindings.map(renderFindingCard)}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </div>
 
                       {/* Section 2: Groq LLM Qualitative Scrutiny */}

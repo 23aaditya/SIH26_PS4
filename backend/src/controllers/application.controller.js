@@ -15,7 +15,7 @@ export const applicationController = {
 
       // Restrict institution to their own
       if (req.user?.accountType === "institution") {
-        where.institutionId = req.user.institutionId || undefined;
+        where.institutionId = req.user.institutionId || "__NO_INSTITUTION__";
       } else if (req.query.institutionId) {
         where.institutionId = req.query.institutionId;
       }
@@ -79,14 +79,23 @@ export const applicationController = {
         return res.status(401).json({ error: "Authentication required" });
       }
 
+      // myApplications is strictly scoped to institution accounts
+      if (req.user.accountType !== "institution") {
+        return res.json([]);
+      }
+
       let institutionId = req.user.institutionId;
       if (!institutionId && req.user.email) {
         const u = await prisma.user.findUnique({ where: { email: req.user.email } });
-        institutionId = u?.institutionId || "inst-001";
+        institutionId = u?.institutionId;
+      }
+
+      if (!institutionId) {
+        return res.json([]);
       }
 
       const rawItems = await prisma.application.findMany({
-        where: { institutionId: institutionId || undefined },
+        where: { institutionId },
         orderBy: { updatedAt: "desc" },
         include: {
           institution: true,
@@ -176,7 +185,16 @@ export const applicationController = {
               stages: {
                 orderBy: { sequenceOrder: "asc" },
                 include: {
-                  assignedStaff: { select: { id: true, name: true, employeeCode: true, email: true, role: true } },
+                  assignedStaff: {
+                    select: {
+                      id: true,
+                      name: true,
+                      employeeCode: true,
+                      email: true,
+                      accountType: true,
+                      designation: true,
+                    },
+                  },
                   reports: true,
                 },
               },
@@ -191,13 +209,11 @@ export const applicationController = {
       }
 
       // Authorization check
-      if (
-        req.user?.accountType === "institution" &&
-        req.user.institutionId &&
-        req.user.institutionId !== application.institutionId
-      ) {
-        res.status(403).json({ error: "Access denied to this application" });
-        return;
+      if (req.user?.accountType === "institution") {
+        if (!req.user.institutionId || req.user.institutionId !== application.institutionId) {
+          res.status(403).json({ error: "Access denied to this application" });
+          return;
+        }
       }
 
       // Least-privilege constraint for system_service:

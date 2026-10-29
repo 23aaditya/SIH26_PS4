@@ -3,9 +3,9 @@ export const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:400
 const DEMO_USER_KEY = "aicte_active_demo_user_id";
 function getActiveUid() {
     if (typeof window !== "undefined") {
-        return localStorage.getItem(DEMO_USER_KEY) || "inst-user-001";
+        return localStorage.getItem(DEMO_USER_KEY) || "inst-user-1";
     }
-    return "inst-user-001";
+    return "inst-user-1";
 }
 async function apiFetch(path, options = {}) {
     const url = `${API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
@@ -96,11 +96,33 @@ export const dataService = {
     async sync() {
         await syncFromServer();
     },
+    clearCache() {
+        cache = {
+            applications: [],
+            documents: [],
+            evcVisits: [],
+            undertakings: [],
+            auditEvents: [],
+            notifications: [],
+            initialized: false,
+        };
+    },
     getInstitutions() {
         return MOCK_INSTITUTIONS;
     },
     getInstitutionById(id) {
-        return MOCK_INSTITUTIONS.find((i) => i.id === id);
+        if (!id) return null;
+        const found = MOCK_INSTITUTIONS.find((i) => i.id === id);
+        if (found) return found;
+        const appWithInst = cache.applications.find((a) => a.institutionId === id && a.institution);
+        if (appWithInst?.institution) {
+            return appWithInst.institution;
+        }
+        return {
+            id,
+            institutionName: "Affiliated Technical Institution",
+            institutionCode: id.startsWith("inst-") ? `PID-${id.slice(-6)}` : id,
+        };
     },
     getApplications(params) {
         // Fire background sync to ensure latest multi-session changes from SQLite

@@ -106,7 +106,16 @@ export const scrutinyController = {
               stages: {
                 orderBy: { sequenceOrder: "asc" },
                 include: {
-                  assignedStaff: { select: { id: true, name: true, employeeCode: true, email: true, role: true } },
+                  assignedStaff: {
+                    select: {
+                      id: true,
+                      name: true,
+                      employeeCode: true,
+                      email: true,
+                      accountType: true,
+                      designation: true,
+                    },
+                  },
                   reports: { include: { submittedBy: { select: { id: true, name: true, employeeCode: true } } } },
                 },
               },

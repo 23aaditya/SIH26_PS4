@@ -5,6 +5,19 @@
  */
 import prisma from "../db/prisma.js";
 
+async function getStaffAvailabilityStatus(staffId) {
+  if (!staffId) return "AVAILABLE";
+  try {
+    const avail = await prisma.staffAvailability.findUnique({
+      where: { staffId },
+      select: { status: true },
+    });
+    return avail?.status || "AVAILABLE";
+  } catch {
+    return "AVAILABLE";
+  }
+}
+
 export const collaborationService = {
   // Resolve staff record from req.user
   async resolveStaff(user) {
@@ -21,7 +34,6 @@ export const collaborationService = {
       include: {
         designation: true,
         organizationUnit: true,
-        availability: true,
       },
     });
   },
@@ -32,6 +44,11 @@ export const collaborationService = {
     if (!staff) {
       throw new Error("Staff identity not found for authenticated user.");
     }
+
+    const staffIds = [staff.id, staff.employeeCode].filter(Boolean);
+    const personalAssignmentClause = {
+      assignedUserId: { in: staffIds },
+    };
 
     const now = new Date();
     const threeDaysFromNow = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
@@ -49,31 +66,50 @@ export const collaborationService = {
       // 1. Assigned to me and active
       prisma.application.count({
         where: {
-          assignedUserId: staff.employeeCode,
-          status: { notIn: ["approved", "rejected", "closed", "withdrawn"] },
+          AND: [
+            personalAssignmentClause,
+            { status: { notIn: ["approved", "rejected", "closed", "withdrawn"] } },
+          ],
         },
       }),
       // 2. Due soon (< 3 days)
       prisma.application.count({
         where: {
-          assignedUserId: staff.employeeCode,
-          dueAt: { lte: threeDaysFromNow, gte: now },
-          status: { notIn: ["approved", "rejected", "closed", "withdrawn"] },
+          AND: [
+            personalAssignmentClause,
+            { dueAt: { lte: threeDaysFromNow, gte: now } },
+            { status: { notIn: ["approved", "rejected", "closed", "withdrawn"] } },
+          ],
         },
       }),
       // 3. Overdue
       prisma.application.count({
         where: {
-          assignedUserId: staff.employeeCode,
-          dueAt: { lt: now },
-          status: { notIn: ["approved", "rejected", "closed", "withdrawn"] },
+          AND: [
+            personalAssignmentClause,
+            { dueAt: { lt: now } },
+            { status: { notIn: ["approved", "rejected", "closed", "withdrawn"] } },
+          ],
         },
       }),
       // 4. Waiting on Institute
       prisma.application.count({
         where: {
-          assignedUserId: staff.employeeCode,
-          status: { in: ["awaiting_institution", "deficiency_raised"] },
+          AND: [
+            {
+              OR: [
+                { assignedUserId: { in: staffIds } },
+                {
+                  workflowInstance: {
+                    stages: {
+                      some: { assignedStaffId: staff.id },
+                    },
+                  },
+                },
+              ],
+            },
+            { status: { in: ["awaiting_institution", "deficiency_raised"] } },
+          ],
         },
       }),
       // 5. Delegated to me (active)
@@ -100,8 +136,21 @@ export const collaborationService = {
       // 8. Completed / Orders issued
       prisma.application.count({
         where: {
-          assignedUserId: staff.employeeCode,
-          status: { in: ["approved", "rejected"] },
+          AND: [
+            {
+              OR: [
+                { assignedUserId: { in: staffIds } },
+                {
+                  workflowInstance: {
+                    stages: {
+                      some: { assignedStaffId: staff.id },
+                    },
+                  },
+                },
+              ],
+            },
+            { status: { in: ["approved", "rejected"] } },
+          ],
         },
       }),
     ]);
@@ -109,15 +158,19 @@ export const collaborationService = {
     // Urgent = overdue + urgent priority applications + pending delegations
     const urgentApplications = await prisma.application.count({
       where: {
-        assignedUserId: staff.employeeCode,
-        priority: "URGENT",
-        status: { notIn: ["approved", "rejected", "closed", "withdrawn"] },
+        AND: [
+          personalAssignmentClause,
+          { priority: "URGENT" },
+          { status: { notIn: ["approved", "rejected", "closed", "withdrawn"] } },
+        ],
       },
     });
 
     const urgentCount = overdueCount + urgentApplications + (delegatedToMeCount > 0 ? 1 : 0);
+    const availabilityStatus = await getStaffAvailabilityStatus(staff.id);
 
     return {
+      total: assignedCount + delegatedToMeCount,
       assigned: assignedCount,
       dueSoon: dueSoonCount,
       overdue: overdueCount,
@@ -133,7 +186,7 @@ export const collaborationService = {
         name: staff.name,
         designation: staff.designation?.title || "Officer",
         organizationUnit: staff.organizationUnit?.name || "Approval Bureau",
-        availability: staff.availability?.status || "AVAILABLE",
+        availability: availabilityStatus,
       },
     };
   },
@@ -144,6 +197,11 @@ export const collaborationService = {
     if (!staff) {
       throw new Error("Staff identity not found.");
     }
+
+    const staffIds = [staff.id, staff.employeeCode].filter(Boolean);
+    const personalAssignmentClause = {
+      assignedUserId: { in: staffIds },
+    };
 
     const { filter = "all", priority, search } = query;
     const now = new Date();
@@ -211,41 +269,62 @@ export const collaborationService = {
     const where = {};
 
     if (filter === "assigned") {
-      where.assignedUserId = staff.employeeCode;
-      where.status = { notIn: ["approved", "rejected", "closed", "withdrawn"] };
-    } else if (filter === "waiting") {
-      where.assignedUserId = staff.employeeCode;
-      where.status = { in: ["awaiting_institution", "deficiency_raised"] };
-    } else if (filter === "completed") {
-      where.assignedUserId = staff.employeeCode;
-      where.status = { in: ["approved", "rejected"] };
-    } else if (filter === "priority") {
-      // Priority work factors:
-      // 1. Manually assigned URGENT or IMPORTANT
-      // 2. Overdue
-      // 3. Due soon
-      // 4. Awaiting clarification or responses received
-      where.OR = [
-        { assignedUserId: staff.employeeCode, priority: { in: ["URGENT", "IMPORTANT"] } },
-        { assignedUserId: staff.employeeCode, dueAt: { lt: now } },
-        { assignedUserId: staff.employeeCode, dueAt: { lte: threeDaysFromNow, gte: now } },
-        { assignedUserId: staff.employeeCode, status: "awaiting_institution" },
+      where.AND = [
+        personalAssignmentClause,
+        { status: { notIn: ["approved", "rejected", "closed", "withdrawn"] } },
       ];
-      where.status = { notIn: ["approved", "rejected", "closed", "withdrawn"] };
+    } else if (filter === "waiting") {
+      where.AND = [
+        {
+          OR: [
+            { assignedUserId: { in: staffIds } },
+            {
+              workflowInstance: {
+                stages: {
+                  some: { assignedStaffId: staff.id },
+                },
+              },
+            },
+          ],
+        },
+        { status: { in: ["awaiting_institution", "deficiency_raised"] } },
+      ];
+    } else if (filter === "completed") {
+      where.AND = [
+        {
+          OR: [
+            { assignedUserId: { in: staffIds } },
+            {
+              workflowInstance: {
+                stages: {
+                  some: { assignedStaffId: staff.id },
+                },
+              },
+            },
+          ],
+        },
+        { status: { in: ["approved", "rejected"] } },
+      ];
+    } else if (filter === "priority") {
+      where.AND = [
+        personalAssignmentClause,
+        {
+          OR: [
+            { priority: { in: ["URGENT", "IMPORTANT"] } },
+            { dueAt: { lt: now } },
+            { dueAt: { lte: threeDaysFromNow, gte: now } },
+            { status: { in: ["awaiting_institution", "deficiency_raised"] } },
+          ],
+        },
+        { status: { notIn: ["approved", "rejected", "closed", "withdrawn"] } },
+      ];
     } else {
       // Filter: "all"
-      // Primary: assigned to staff
-      // If staff has no direct assignments yet, fallback to all active in their bureau/region
-      const assignedCount = await prisma.application.count({
-        where: { assignedUserId: staff.employeeCode },
-      });
-
-      if (assignedCount > 0) {
-        where.assignedUserId = staff.employeeCode;
-      } else {
-        // Fallback for demonstration/general officer viewing
-        where.status = { notIn: ["closed", "withdrawn"] };
-      }
+      // Shows all active work genuinely assigned to this staff member
+      where.AND = [
+        personalAssignmentClause,
+        { status: { notIn: ["closed", "withdrawn"] } },
+      ];
     }
 
     if (priority) {
@@ -435,14 +514,13 @@ export const collaborationService = {
       include: {
         designation: true,
         organizationUnit: true,
-        availability: true,
       },
     });
 
     // Calculate active workload for each direct report
     const directReports = await Promise.all(
       rawDirectReports.map(async (dr) => {
-        const [activeApps, urgentApps, activeDelegations] = await Promise.all([
+        const [activeApps, urgentApps, activeDelegations, drAvail] = await Promise.all([
           prisma.application.count({
             where: {
               assignedUserId: dr.employeeCode,
@@ -462,6 +540,7 @@ export const collaborationService = {
               status: { in: ["PENDING", "ACCEPTED", "IN_PROGRESS"] },
             },
           }),
+          getStaffAvailabilityStatus(dr.id),
         ]);
 
         return {
@@ -471,7 +550,7 @@ export const collaborationService = {
           email: dr.email,
           designation: dr.designation?.title || "Staff Member",
           organizationUnit: dr.organizationUnit?.name || "Approval Bureau",
-          availability: dr.availability?.status || "AVAILABLE",
+          availability: drAvail,
           workload: {
             active: activeApps,
             urgent: urgentApps,
@@ -482,7 +561,7 @@ export const collaborationService = {
     );
 
     // 3. Department Peers (Colleagues in same bureau / unit)
-    const peers = await prisma.staff.findMany({
+    const rawPeers = await prisma.staff.findMany({
       where: {
         organizationUnitId: staff.organizationUnitId || undefined,
         id: { not: staff.id },
@@ -490,9 +569,18 @@ export const collaborationService = {
       take: 8,
       include: {
         designation: true,
-        availability: true,
       },
     });
+
+    const peers = await Promise.all(
+      rawPeers.map(async (p) => ({
+        id: p.id,
+        employeeCode: p.employeeCode,
+        name: p.name,
+        designation: p.designation?.title,
+        availability: await getStaffAvailabilityStatus(p.id),
+      }))
+    );
 
     // 4. Committee memberships & co-members
     const memberships = await prisma.committeeMembership.findMany({
@@ -528,6 +616,8 @@ export const collaborationService = {
       })),
     }));
 
+    const myAvail = await getStaffAvailabilityStatus(staff.id);
+
     return {
       you: {
         id: staff.id,
@@ -536,18 +626,12 @@ export const collaborationService = {
         email: staff.email,
         designation: staff.designation?.title || "Officer",
         organizationUnit: staff.organizationUnit?.name || "Approval Bureau",
-        availability: staff.availability?.status || "AVAILABLE",
+        availability: myAvail,
         directReportsCount: directReports.length,
       },
       supervisors, // Upward chain
       directReports, // Downward subordinates with workload
-      peers: peers.map((p) => ({
-        id: p.id,
-        employeeCode: p.employeeCode,
-        name: p.name,
-        designation: p.designation?.title,
-        availability: p.availability?.status || "AVAILABLE",
-      })),
+      peers,
       committees,
     };
   },

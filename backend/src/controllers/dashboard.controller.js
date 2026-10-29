@@ -3,10 +3,12 @@ import prisma from "../db/prisma.js";
 export const dashboardController = {
   async getMetrics(req, res, next) {
     try {
-      const institutionId =
-        req.user?.accountType === "institution"
-          ? req.user.institutionId
-          : req.query.institutionId || undefined;
+      let institutionId = undefined;
+      if (req.user?.accountType === "institution") {
+        institutionId = req.user.institutionId || "__NO_INSTITUTION__";
+      } else if (req.query.institutionId) {
+        institutionId = req.query.institutionId;
+      }
 
       const where = institutionId ? { institutionId } : {};
       const now = new Date();

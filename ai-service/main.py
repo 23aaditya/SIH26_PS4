@@ -66,14 +66,16 @@ def compute_application_version_hash(
     Compute canonical idempotency version hash based on:
     - application ID
     - application updatedAt timestamp / workflowVersion
+    - application category / type code
     - total document count
     - sorted document IDs paired with verified SHA-256 content checksums
-    Guarantees that document content modifications invalidate the hash even if document IDs stay identical.
+    Guarantees that document content modifications or category changes invalidate the hash.
     """
     application_id = app_data.get("id") or ""
     app_version = app_data.get("updatedAt") or app_data.get("workflowVersion") or "v-2.4"
+    category = str(app_data.get("applicationCategory") or app_data.get("applicationType", {}).get("code") or "")
     docs = app_data.get("documents", [])
-    hash_seed = f"{application_id}:{app_version}:{len(docs)}:" + ":".join(
+    hash_seed = f"{application_id}:{app_version}:{category}:{len(docs)}:" + ":".join(
         f"{d.get('id')}:{doc_checksums.get(d.get('id'), 'missing')}"
         for d in sorted(docs, key=lambda x: x.get("id", ""))
     )
@@ -149,6 +151,12 @@ async def run_scrutiny_analysis(
                     "page_count": 0,
                 }
                 verified_doc_checksums[doc_id] = server_checksum or "unavailable"
+                technical_failures.append({"doc_id": doc_id, "error": str(doc_err)})
+
+        if technical_failures:
+            error_details = "; ".join([f"{f['doc_id']}: {f['error']}" for f in technical_failures])
+            update_job_status(job_id, "FAILED", error_message=f"Technical document processing failure: {error_details}")
+            return
 
         # 3. Compute canonical idempotency version hash based on verified document content checksums
         version_hash = compute_application_version_hash(app_data, verified_doc_checksums)
@@ -172,9 +180,9 @@ async def run_scrutiny_analysis(
                 )
                 return
 
-        # 5. Evaluate rules deterministically
-        pre_check = rule_engine.evaluate_eoa(app_data, extracted_docs)
-        logger.info(f"Rule evaluation complete for {app_num}: Outcome = {pre_check.outcome}")
+        # 5. Evaluate rules deterministically using category-aware dispatcher
+        pre_check = rule_engine.evaluate_application(app_data, extracted_docs)
+        logger.info(f"Rule evaluation complete for {app_num}: Outcome = {pre_check.outcome} (Category: {pre_check.category})")
 
         # 5b. Advisory LLM Qualitative Scrutiny (Groq): Identify contextual inconsistencies, missing schedules, and ambiguities
         llm_result = await scrutiny_agent.analyze_application(
@@ -261,8 +269,14 @@ async def run_scrutiny_analysis(
             )
 
         combined_content = pre_check.summary
-        if llm_result.status == "SUCCESS" and llm_result.summary:
-            combined_content += f"\n\n--- AI Qualitative Scrutiny Observations ({llm_result.model_used or 'Groq LLM'}) ---\n{llm_result.summary}"
+        if llm_result.status in ("SUCCESS", "PARTIAL_ANALYSIS") and llm_result.summary:
+            prefix = "AI Qualitative Scrutiny Observations"
+            if llm_result.status == "PARTIAL_ANALYSIS":
+                prefix += " (Partial Analysis)"
+            combined_content += f"\n\n--- {prefix} ({llm_result.model_used or 'Groq LLM'}) ---\n{llm_result.summary}"
+        elif llm_result.status == "TECHNICAL_FAILURE" and llm_result.error_message:
+            combined_content += f"\n\n--- AI Qualitative Scrutiny Note ---\nAdvisory LLM analysis was incomplete due to a technical limitation: {llm_result.error_message}. Deterministic statutory checks remain 100% authoritative."
+
         if resubmission_diff:
             combined_content += "\n\n--- Resubmission Discrepancy Diff ---\n"
             for d in resubmission_diff:
@@ -283,7 +297,10 @@ async def run_scrutiny_analysis(
                     "jobId": job_id,
                     "versionHash": version_hash,
                     "handbookVersion": pre_check.handbook_version,
-                    "findings": [f.model_dump() for f in pre_check.findings],  # Backward compatible deterministic findings
+                    "category": pre_check.category,
+                    "categoryLabel": pre_check.category_label,
+                    "unsupportedCategory": pre_check.unsupported_category,
+                    "findings": [f.model_dump() for f in pre_check.findings],  # Deterministic findings
                     "llmFindings": [f.model_dump() for f in llm_result.findings],
                     "llmAnalysis": {
                         "status": llm_result.status,
@@ -291,6 +308,11 @@ async def run_scrutiny_analysis(
                         "summary": llm_result.summary,
                         "findingsCount": len(llm_result.findings),
                         "errorMessage": llm_result.error_message,
+                        "httpStatus": llm_result.http_status,
+                        "requestedTokens": llm_result.requested_tokens,
+                        "tokenLimit": llm_result.token_limit,
+                        "totalBatches": llm_result.total_batches,
+                        "successfulBatches": llm_result.successful_batches,
                     },
                     "resubmissionDiff": resubmission_diff,
                     "isRerun": force_rerun or retry_llm,

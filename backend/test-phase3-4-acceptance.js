@@ -99,7 +99,9 @@ async function runAcceptanceSuite() {
     console.log(`  Uploaded doc ID: ${uploadedDocId}, SHA-256: ${uploadData.document.checksum}`);
 
     // Verify stored file on disk
-    const storedPath = path.resolve(uploadData.document.storagePath);
+    const storedPath = fs.existsSync(path.resolve(uploadData.document.storagePath))
+      ? path.resolve(uploadData.document.storagePath)
+      : path.resolve(__dirname, uploadData.document.storagePath);
     if (!fs.existsSync(storedPath)) throw new Error(`Stored file not found on disk at ${storedPath}`);
     const diskBytes = fs.readFileSync(storedPath);
     const diskChecksum = crypto.createHash("sha256").update(diskBytes).digest("hex");

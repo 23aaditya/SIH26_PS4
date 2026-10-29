@@ -7,7 +7,8 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { StatusBadge, SlaCountdown } from "@/components/shared/StatusBadge";
 import { dataService } from "@/lib/dataService";
-import { Plus, Search, FileText, Edit, ArrowRight, Loader2, User, AlertCircle } from "lucide-react";
+import { Plus, Search, FileText, Edit, ArrowRight, Loader2, User, AlertCircle, RefreshCw } from "lucide-react";
+import { APPLICATION_CATEGORIES, APPLICATION_CATEGORY_LABELS, getApplicationCategoryLabel } from "@/lib/types";
 
 const KNOWN_OFFICERS = {
   "DEMO-AIC-034": {
@@ -126,41 +127,62 @@ function ApplicationsContent() {
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [apps, setApps] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api";
 
-  const fetchApplications = async () => {
+  const fetchApplications = React.useCallback(async (signal) => {
     try {
       setLoading(true);
+      setError(null);
+      const authUid = userProfile?.id || userProfile?.uid || userProfile?.email || "principal@pict.edu";
       const res = await fetch(`${API_BASE}/applications/my`, {
         headers: {
-          "x-user-id": userProfile?.uid || userProfile?.email || "principal@pict.edu",
+          "x-user-id": authUid,
         },
         credentials: "include",
+        signal,
       });
 
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data)) {
-          setApps(data);
-          setLoading(false);
-          return;
-        }
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || `HTTP ${res.status}: Failed to fetch applications.`);
+      }
+
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        setApps(data);
+        setError(null);
+      } else {
+        setApps([]);
       }
     } catch (err) {
+      if (err.name === "AbortError" || signal?.aborted) return;
       console.warn("Could not fetch from backend:", err);
+      setError(err.message || "Failed to load application portfolio.");
+      setApps([]);
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) {
+        setLoading(false);
+      }
     }
-  };
+  }, [userProfile?.id, userProfile?.uid, userProfile?.email, API_BASE]);
 
   useEffect(() => {
-    fetchApplications();
-  }, [userProfile]);
+    const controller = new AbortController();
+    fetchApplications(controller.signal);
+    return () => {
+      controller.abort();
+    };
+  }, [fetchApplications]);
 
   const filteredApps = useMemo(() => {
     return apps.filter((app) => {
-      const typeLabel = app.applicationType?.name || APPLICATION_CATEGORY_LABELS[app.applicationCategory] || app.applicationCategory || "";
+      const typeLabel =
+        app.applicationType?.name ||
+        getApplicationCategoryLabel(app.applicationCategory) ||
+        app.applicationCategory ||
+        "";
       const stageName = app.currentStageName || "";
       const matchesSearch =
         search === "" ||
@@ -276,6 +298,22 @@ function ApplicationsContent() {
                     <p className="text-xs font-medium text-slate-700">Loading your applications...</p>
                   </td>
                 </tr>
+              ) : error ? (
+                <tr>
+                  <td colSpan={7} className="py-12 text-center text-rose-600">
+                    <AlertCircle className="h-7 w-7 text-rose-500 mx-auto mb-2" />
+                    <p className="text-sm font-semibold text-rose-900">Failed to load applications</p>
+                    <p className="text-xs text-rose-600 mt-1">{error}</p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => fetchApplications()}
+                      className="mt-3 text-xs border-rose-300 text-rose-800 hover:bg-rose-50"
+                    >
+                      <RefreshCw className="h-3 w-3 mr-1" /> Try Again
+                    </Button>
+                  </td>
+                </tr>
               ) : filteredApps.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="py-12 text-center text-slate-500">
@@ -288,7 +326,7 @@ function ApplicationsContent() {
                 filteredApps.map((app) => {
                   const typeLabel =
                     app.applicationType?.name ||
-                    APPLICATION_CATEGORY_LABELS[app.applicationCategory] ||
+                    getApplicationCategoryLabel(app.applicationCategory) ||
                     app.applicationCategory ||
                     "General Application";
                   const isDraft = app.status === "draft";

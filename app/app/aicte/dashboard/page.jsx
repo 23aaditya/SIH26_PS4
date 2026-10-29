@@ -94,6 +94,8 @@ function AicteDashboardContent() {
   const [sortBy, setSortBy] = useState("sla");
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [listLoading, setListLoading] = useState(false);
 
   // Modals
   const [isDelegationOpen, setIsDelegationOpen] = useState(false);
@@ -103,74 +105,107 @@ function AicteDashboardContent() {
   const officerCode = userProfile?.employeeCode || userProfile?.uid || "DEMO-AIC-034";
   const firstName = userProfile?.name ? userProfile.name.split(" ")[0] : "Officer";
 
-  // Fetch summary and priority work
-  const loadDashboardData = async () => {
-    try {
-      setLoading(true);
-      const headers = {
-        "x-user-id": officerCode,
-      };
+  // Fetch summary and priority work with AbortController for clean persona switching
+  useEffect(() => {
+    const controller = new AbortController();
+    setError(null);
+    setLoading(true);
+    setSummary(null);
+    setPriorityItems([]);
 
-      const [summaryRes, priorityRes, treeRes, workloadRes, availRes] = await Promise.all([
-        fetch(`${API_BASE}/aicte/my-work/summary`, { headers, credentials: "include" }),
-        fetch(`${API_BASE}/aicte/my-work?filter=priority`, { headers, credentials: "include" }),
-        fetch(`${API_BASE}/aicte/work-tree`, { headers, credentials: "include" }),
-        fetch(`${API_BASE}/aicte/team-workload`, { headers, credentials: "include" }),
-        fetch(`${API_BASE}/aicte/availability`, { headers, credentials: "include" }),
-      ]);
+    async function loadDashboardData() {
+      try {
+        const headers = { "x-user-id": officerCode };
 
-      if (summaryRes.ok) {
+        const [summaryRes, priorityRes, treeRes, workloadRes, availRes] = await Promise.all([
+          fetch(`${API_BASE}/aicte/my-work/summary`, { headers, credentials: "include", signal: controller.signal }),
+          fetch(`${API_BASE}/aicte/my-work?filter=priority`, { headers, credentials: "include", signal: controller.signal }),
+          fetch(`${API_BASE}/aicte/work-tree`, { headers, credentials: "include", signal: controller.signal }),
+          fetch(`${API_BASE}/aicte/team-workload`, { headers, credentials: "include", signal: controller.signal }),
+          fetch(`${API_BASE}/aicte/availability`, { headers, credentials: "include", signal: controller.signal }),
+        ]);
+
+        if (!summaryRes.ok) {
+          throw new Error(`Failed to load work summary (HTTP ${summaryRes.status})`);
+        }
+
         const sumData = await summaryRes.json();
         setSummary(sumData);
-      }
 
-      if (priorityRes.ok) {
-        const pData = await priorityRes.json();
-        setPriorityItems(pData.items || []);
-      }
+        if (priorityRes.ok) {
+          const pData = await priorityRes.json();
+          setPriorityItems(pData.items || []);
+        }
 
-      if (treeRes.ok) {
-        const tData = await treeRes.json();
-        setWorkTreeSnippet(tData);
-      }
+        if (treeRes.ok) {
+          const tData = await treeRes.json();
+          setWorkTreeSnippet(tData);
+        }
 
-      if (workloadRes.ok) {
-        const wData = await workloadRes.json();
-        setTeamWorkload(wData);
-      }
+        if (workloadRes.ok) {
+          const wData = await workloadRes.json();
+          setTeamWorkload(wData);
+        }
 
-      if (availRes.ok) {
-        const aData = await availRes.json();
-        setAvailability(aData);
+        if (availRes.ok) {
+          const aData = await availRes.json();
+          setAvailability(aData);
+        }
+      } catch (err) {
+        if (err.name !== "AbortError") {
+          console.warn("Failed to fetch dashboard data:", err);
+          setError(err.message || "Failed to load dashboard metrics");
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
       }
-    } catch (err) {
-      console.warn("Failed to fetch dashboard data:", err);
-    } finally {
-      setLoading(false);
     }
-  };
 
-  // Fetch work list for active tab
-  const loadWorkList = async (tab) => {
-    try {
-      const headers = { "x-user-id": officerCode };
-      const res = await fetch(`${API_BASE}/aicte/my-work?filter=${tab}`, { headers, credentials: "include" });
-      if (res.ok) {
-        const data = await res.json();
-        setWorkList(data);
-      }
-    } catch (err) {
-      console.warn("Failed to load work list:", err);
-    }
-  };
-
-  useEffect(() => {
     loadDashboardData();
-  }, [userProfile]);
 
+    return () => {
+      controller.abort();
+    };
+  }, [officerCode, userProfile]);
+
+  // Fetch work list for active tab with abort handling
   useEffect(() => {
-    loadWorkList(activeTab);
-  }, [activeTab, userProfile]);
+    const controller = new AbortController();
+    setListLoading(true);
+
+    async function loadWorkList() {
+      try {
+        const headers = { "x-user-id": officerCode };
+        const res = await fetch(`${API_BASE}/aicte/my-work?filter=${activeTab}`, {
+          headers,
+          credentials: "include",
+          signal: controller.signal,
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setWorkList(data);
+        } else {
+          setWorkList({ items: [], total: 0, type: "applications" });
+        }
+      } catch (err) {
+        if (err.name !== "AbortError") {
+          console.warn("Failed to load work list:", err);
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setListLoading(false);
+        }
+      }
+    }
+
+    loadWorkList();
+
+    return () => {
+      controller.abort();
+    };
+  }, [activeTab, officerCode, userProfile]);
 
   const handleCardClick = (targetTab) => {
     setActiveTab(targetTab);
@@ -236,6 +271,32 @@ function AicteDashboardContent() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-10">
+      {/* Error state banner */}
+      {error && !loading && (
+        <div className="p-4 rounded-xl border border-rose-200 bg-rose-50 text-rose-800 flex items-center justify-between gap-3 shadow-2xs">
+          <div className="flex items-center gap-2.5">
+            <AlertCircle className="h-5 w-5 text-rose-600 shrink-0" />
+            <div>
+              <p className="text-xs font-bold text-rose-900">Dashboard Metrics Unavailable</p>
+              <p className="text-[11px] text-rose-700">{error}</p>
+            </div>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setLoading(true);
+              setError(null);
+              // triggers re-fetch
+              setSummary(null);
+            }}
+            className="h-7 text-xs px-2.5 text-rose-700 border-rose-300 hover:bg-rose-100 font-semibold"
+          >
+            Retry
+          </Button>
+        </div>
+      )}
+
       {/* ─── TOP OPERATIONAL BAR (Mixpanel Project & Session Header) ─── */}
       <div className="rounded-2xl border border-slate-200/80 bg-white p-4 sm:p-5 shadow-2xs flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
@@ -358,7 +419,13 @@ function AicteDashboardContent() {
           </div>
           <div className="flex items-baseline justify-between">
             <span className="text-3xl font-black text-slate-900 font-mono tracking-tight">
-              {summary ? summary.assigned : "—"}
+              {loading ? (
+                <Loader2 className="h-6 w-6 animate-spin text-slate-400 inline" />
+              ) : summary ? (
+                summary.assigned
+              ) : (
+                "—"
+              )}
             </span>
             <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100">
               Active Quorum
@@ -391,7 +458,13 @@ function AicteDashboardContent() {
           </div>
           <div className="flex items-baseline justify-between">
             <span className="text-3xl font-black text-rose-600 font-mono tracking-tight">
-              {summary ? summary.dueSoon : "—"}
+              {loading ? (
+                <Loader2 className="h-6 w-6 animate-spin text-rose-400 inline" />
+              ) : summary ? (
+                summary.dueSoon
+              ) : (
+                "—"
+              )}
             </span>
             <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200">
               SLA Risk
@@ -424,7 +497,13 @@ function AicteDashboardContent() {
           </div>
           <div className="flex items-baseline justify-between">
             <span className="text-3xl font-black text-slate-900 font-mono tracking-tight">
-              {summary ? summary.waitingOnInstitute : "—"}
+              {loading ? (
+                <Loader2 className="h-6 w-6 animate-spin text-amber-400 inline" />
+              ) : summary ? (
+                summary.waitingOnInstitute
+              ) : (
+                "—"
+              )}
             </span>
             <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
               Clarifications
@@ -457,7 +536,13 @@ function AicteDashboardContent() {
           </div>
           <div className="flex items-baseline justify-between">
             <span className="text-3xl font-black text-purple-700 font-mono tracking-tight">
-              {summary ? summary.delegatedToMe : "—"}
+              {loading ? (
+                <Loader2 className="h-6 w-6 animate-spin text-purple-400 inline" />
+              ) : summary ? (
+                summary.delegatedToMe
+              ) : (
+                "—"
+              )}
             </span>
             <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200">
               Co-Review
@@ -487,7 +572,18 @@ function AicteDashboardContent() {
           </span>
         </div>
 
-        {priorityItems.length === 0 ? (
+        {loading ? (
+          <Card className="p-8 text-center border border-slate-200/80 bg-white rounded-2xl shadow-2xs">
+            <Loader2 className="h-8 w-8 animate-spin text-slate-400 mx-auto mb-2" />
+            <p className="text-xs text-slate-500 font-medium">Evaluating statutory priority work...</p>
+          </Card>
+        ) : error ? (
+          <Card className="p-8 text-center border border-rose-200 bg-rose-50/50 rounded-2xl shadow-2xs">
+            <AlertCircle className="h-8 w-8 text-rose-500 mx-auto mb-2" />
+            <p className="text-sm font-bold text-rose-900">Priority Work Unavailable</p>
+            <p className="text-xs text-rose-600 mt-1 max-w-md mx-auto">{error}</p>
+          </Card>
+        ) : priorityItems.length === 0 ? (
           <Card className="p-8 text-center border border-slate-200/80 bg-white rounded-2xl shadow-2xs">
             <CheckCircle2 className="h-9 w-9 text-emerald-500 mx-auto mb-2.5" />
             <p className="text-sm font-bold text-slate-900">Priority Queue Clear</p>
@@ -792,7 +888,14 @@ function AicteDashboardContent() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredItems.length === 0 ? (
+                {listLoading ? (
+                  <tr>
+                    <td colSpan={7} className="py-14 text-center text-slate-500">
+                      <Loader2 className="h-7 w-7 animate-spin text-slate-400 mx-auto mb-2" />
+                      <p className="text-xs text-slate-500 font-medium">Loading applications...</p>
+                    </td>
+                  </tr>
+                ) : filteredItems.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="py-14 text-center text-slate-500">
                       <Inbox className="h-8 w-8 text-slate-300 mx-auto mb-2" />

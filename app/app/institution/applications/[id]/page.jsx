@@ -343,6 +343,11 @@ function ApplicationDetailContent() {
       }
     } catch (err) {
       console.error("Deficiency response submission error:", err);
+    } finally {
+      setSubmittingClarify(false);
+    }
+  };
+
   const handleGrievanceSubmit = async () => {
     if (!grievanceText.trim()) return;
     setSubmittingGrievance(true);
@@ -626,7 +631,7 @@ function ApplicationDetailContent() {
                   </h4>
                 </div>
                 <p className="text-xs text-slate-600 leading-relaxed">
-                  If you dispute the scrutiny committee's observation or maintain that your institution is already fully compliant with APH norms, file a formal grievance to the Standing Hearing / Appellate Committee (SAC).
+                  If you dispute the scrutiny committee&apos;s observation or maintain that your institution is already fully compliant with APH norms, file a formal grievance to the Standing Hearing / Appellate Committee (SAC).
                 </p>
               </div>
               <Button
