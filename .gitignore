@@ -168,3 +168,6 @@ ai-service/venv/
 *.db
 agent_jobs.db
 
+backend/prisma/dev.db
+backend/prisma/dev.db-wal
+backend/prisma/dev.db-shm
