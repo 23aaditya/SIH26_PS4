@@ -2,7 +2,7 @@ import hashlib
 import json
 import logging
 from contextlib import asynccontextmanager
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 
 from fastapi import FastAPI, BackgroundTasks, HTTPException, status, Depends
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,6 +26,23 @@ from rules.engine import rule_engine
 from llm.scrutiny_agent import scrutiny_agent
 from llm.client import groq_client
 from models.schemas import TriggerJobRequest, JobStatusResponse
+from agent.store import (
+    init_agent_tables,
+    reconcile_startup_executions,
+    get_execution,
+    get_actions_for_execution,
+    get_actions_for_application,
+    get_action,
+    create_execution,
+)
+from agent.orchestrator import agent_orchestrator
+from agent.models import (
+    AgentEventRequest,
+    AgentExecutionResponse,
+    AgentActionResponse,
+    ActionApprovalRequest,
+    ActionRejectionRequest,
+)
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -33,13 +50,17 @@ logger = logging.getLogger("ai_scrutiny_service")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Initialize SQLite job store
+    # Initialize SQLite job store and agent tables
     init_db()
+    init_agent_tables()
     # Startup reconciliation: clean up dangling in-flight jobs from prior crashes/restarts
     reconciled_count = reconcile_startup_jobs()
     if reconciled_count > 0:
         logger.info(f"Startup recovery: Reconciled {reconciled_count} interrupted jobs to FAILED status.")
-    logger.info("AI Scrutiny Assistant initialized. SQLite job store ready.")
+    reconciled_execs = reconcile_startup_executions()
+    if reconciled_execs > 0:
+        logger.info(f"Startup recovery: Reconciled {reconciled_execs} interrupted agent executions.")
+    logger.info("AI Scrutiny Assistant and Lifecycle Agent initialized. SQLite store ready.")
     yield
     logger.info("AI Scrutiny Assistant shutting down.")
 
@@ -474,6 +495,142 @@ async def get_latest_job_for_app(application_id: str):
         completed_at=job.get("completed_at"),
         error_message=job.get("error_message"),
     )
+
+
+# -----------------------------------------------------------------------------
+# Phase 4 Lifecycle Agent Endpoints
+# -----------------------------------------------------------------------------
+
+@app.post(
+    "/api/v1/agent/events",
+    response_model=AgentExecutionResponse,
+    dependencies=[Depends(verify_service_authorization)],
+)
+async def dispatch_lifecycle_event(
+    event_req: AgentEventRequest,
+    background_tasks: BackgroundTasks,
+    sync: bool = True,
+):
+    """
+    Intake a lifecycle event and trigger the Agent Orchestrator.
+    Idempotent: Duplicate correlation IDs return the existing execution.
+    """
+    if sync:
+        res = await agent_orchestrator.handle_event(
+            event_type=event_req.event_type,
+            application_id=event_req.application_id,
+            payload=event_req.payload,
+            actor=event_req.actor,
+            correlation_id=event_req.correlation_id,
+        )
+        return res
+    else:
+        execution = create_execution(
+            application_id=event_req.application_id,
+            event_type=event_req.event_type,
+            correlation_id=event_req.correlation_id,
+            payload=event_req.payload,
+        )
+        background_tasks.add_task(
+            agent_orchestrator.handle_event,
+            event_req.event_type,
+            event_req.application_id,
+            event_req.payload,
+            event_req.actor,
+            event_req.correlation_id,
+        )
+        return {
+            "execution_id": execution["execution_id"],
+            "application_id": execution["application_id"],
+            "event_type": execution["event_type"],
+            "correlation_id": execution.get("correlation_id"),
+            "status": execution["status"],
+            "actions": [],
+            "created_at": execution["created_at"],
+            "updated_at": execution["updated_at"],
+        }
+
+
+@app.get(
+    "/api/v1/agent/executions/{execution_id}",
+    response_model=AgentExecutionResponse,
+    dependencies=[Depends(verify_service_authorization)],
+)
+async def get_agent_execution_status(execution_id: str):
+    """Get status and action log for a specific agent execution."""
+    execution = get_execution(execution_id)
+    if not execution:
+        raise HTTPException(status_code=404, detail=f"Execution '{execution_id}' not found.")
+    actions = get_actions_for_execution(execution_id)
+    return agent_orchestrator._format_execution_response(execution, actions)
+
+
+@app.get(
+    "/api/v1/agent/applications/{application_id}/actions",
+    response_model=List[AgentActionResponse],
+    dependencies=[Depends(verify_service_authorization)],
+)
+async def list_agent_actions_for_app(application_id: str, status: Optional[str] = None):
+    """List all agent actions (pending approval, executed, etc.) for an application."""
+    actions = get_actions_for_application(application_id, status=status)
+    return actions
+
+
+@app.post(
+    "/api/v1/agent/actions/{action_id}/approve",
+    response_model=AgentExecutionResponse,
+    dependencies=[Depends(verify_service_authorization)],
+)
+async def approve_agent_action(action_id: str, req: ActionApprovalRequest):
+    """
+    Officer approval gate: Approves a pending action and resumes execution.
+    """
+    action = get_action(action_id)
+    if not action:
+        raise HTTPException(status_code=404, detail=f"Action '{action_id}' not found.")
+
+    res = await agent_orchestrator.handle_event(
+        event_type="ACTION_APPROVED",
+        application_id=action["application_id"],
+        payload={
+            "action_id": action_id,
+            "approved_by": req.approved_by,
+            "approval_notes": req.approval_notes,
+            "official_notice_id": req.official_notice_id,
+            "deficiency_cycle": req.deficiency_cycle,
+        },
+        actor=req.approved_by,
+        correlation_id=f"approval-{action_id}",
+    )
+    return res
+
+
+@app.post(
+    "/api/v1/agent/actions/{action_id}/reject",
+    response_model=AgentExecutionResponse,
+    dependencies=[Depends(verify_service_authorization)],
+)
+async def reject_agent_action(action_id: str, req: ActionRejectionRequest):
+    """
+    Officer rejection gate: Declines a proposed action.
+    """
+    action = get_action(action_id)
+    if not action:
+        raise HTTPException(status_code=404, detail=f"Action '{action_id}' not found.")
+
+    res = await agent_orchestrator.handle_event(
+        event_type="ACTION_REJECTED",
+        application_id=action["application_id"],
+        payload={
+            "action_id": action_id,
+            "rejected_by": req.rejected_by,
+            "rejection_reason": req.rejection_reason,
+        },
+        actor=req.rejected_by,
+        correlation_id=f"rejection-{action_id}",
+    )
+    return res
+
 
 if __name__ == "__main__":
     import uvicorn

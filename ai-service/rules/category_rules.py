@@ -2,7 +2,7 @@ import re
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 from models.schemas import RuleFinding
-from rules.base import parse_date_safely, find_document_by_type_or_keywords
+from rules.base import parse_date_safely, find_document_by_type_or_keywords, normalize_category
 
 # ==============================================================================
 # 1. INCREASE IN INTAKE & ADDITIONAL COURSE RULES (Chapter II Clause 2.6)
@@ -111,14 +111,168 @@ def check_affidavit_8(app_data: Dict[str, Any], extracted_docs: Dict[str, Dict[s
     )
 
 
+CATEGORY_RESOLUTION_CONFIG: Dict[str, Dict[str, str]] = {
+    "increase_intake": {
+        "rule_id": "INTAKE-RESOLUTION-F3",
+        "rule_name": "Trust / Society Resolution in Format 3 (Increase in Intake)",
+        "aph_chapter": "Chapter II",
+        "aph_annexure": "Annexure-2 Section 2.6.iii & Format 3 Clause x (Pages 82, 205)",
+        "aph_clause": "AICTE APH 2024-27 Annexure-2 Section 2.6.iii & Format 3 Clause x (Pages 82, 205)",
+        "evidence_missing": "No document record for mandatory Trust/Society Resolution in Format 3 (Clause x) has been uploaded to the application dossier.",
+        "recommendation": "Submit Governing Body / Trust Resolution in AICTE Format 3 (Clause x, Page 205) approving the increase in intake and allocating requisite land, building, faculty, and funds as mandated by APH Annexure-2 Section 2.6.iii (Page 82).",
+        "doc_purpose": "approving institutional intake expansion and allocation of requisite land, building, and funds",
+    },
+    "additional_course": {
+        "rule_id": "INTAKE-RESOLUTION-F3",
+        "rule_name": "Trust / Society Resolution in Format 3 (Additional Course)",
+        "aph_chapter": "Chapter II",
+        "aph_annexure": "Annexure-2 Section 2.6.iii & Format 3 Clause x (Pages 82, 205)",
+        "aph_clause": "AICTE APH 2024-27 Annexure-2 Section 2.6.iii & Format 3 Clause x (Pages 82, 205)",
+        "evidence_missing": "No document record for mandatory Trust/Society Resolution in Format 3 (Clause x) has been uploaded to the application dossier.",
+        "recommendation": "Submit Governing Body / Trust Resolution in AICTE Format 3 (Clause x, Page 205) approving starting additional course(s)/division(s) and allocating requisite facilities and funds as mandated by APH Annexure-2 Section 2.6.iii (Page 82).",
+        "doc_purpose": "approving additional course(s) and allocating requisite facilities and funds",
+    },
+    "new_programme": {
+        "rule_id": "INTAKE-RESOLUTION-F3",
+        "rule_name": "Trust / Society Resolution in Format 3 (New Programme / Level)",
+        "aph_chapter": "Chapter II",
+        "aph_annexure": "Annexure-2 Section 2.3.iii & Format 3 Clause vii (Pages 81, 205)",
+        "aph_clause": "AICTE APH 2024-27 Annexure-2 Section 2.3.iii & Format 3 Clause vii (Pages 81, 205)",
+        "evidence_missing": "No document record for mandatory Trust/Society Resolution in Format 3 (Clause vii) has been uploaded to the application dossier.",
+        "recommendation": "Submit Governing Body / Trust Resolution in AICTE Format 3 (Clause vii, Page 205) approving starting new Programme/Level and allocating requisite infrastructure as mandated by APH Annexure-2 Section 2.3.iii (Page 81).",
+        "doc_purpose": "approving starting new Programme/Level and allocating requisite infrastructure",
+    },
+    "change_of_site": {
+        "rule_id": "INTAKE-RESOLUTION-F3",
+        "rule_name": "Trust / Society Resolution in Format 3 (Change of Site / Location)",
+        "aph_chapter": "Chapter II",
+        "aph_annexure": "Annexure-2 Section 2.3.iii & Format 3 Clause iv (Pages 81, 205)",
+        "aph_clause": "AICTE APH 2024-27 Annexure-2 Section 2.3.iii & Format 3 Clause iv (Pages 81, 205)",
+        "evidence_missing": "No document record for mandatory Trust/Society Resolution in Format 3 (Clause iv) has been uploaded to the application dossier.",
+        "recommendation": "Submit Governing Body / Trust Resolution in AICTE Format 3 (Clause iv, Page 205) approving Change of Site/Location of the Institution from old to new site as mandated by APH Annexure-2 Section 2.3.iii (Page 81).",
+        "doc_purpose": "approving Change of Site/Location of the Institution",
+    },
+    "change_of_name": {
+        "rule_id": "INTAKE-RESOLUTION-F3",
+        "rule_name": "Trust / Society Resolution in Format 3 (Change of Name of Institution)",
+        "aph_chapter": "Chapter II",
+        "aph_annexure": "Annexure-2 Section 2.10.ii & Format 3 Clause xiv (Pages 84, 205)",
+        "aph_clause": "AICTE APH 2024-27 Annexure-2 Section 2.10.ii & Format 3 Clause xiv (Pages 84, 205)",
+        "evidence_missing": "No document record for mandatory Trust/Society Resolution in Format 3 (Clause xiv) has been uploaded to the application dossier.",
+        "recommendation": "Submit Governing Body / Trust Resolution in AICTE Format 3 (Clause xiv, Page 205) approving Change in the Name of the Institution as mandated by APH Annexure-2 Section 2.10.ii (Page 84).",
+        "doc_purpose": "approving Change in the Name of the Institution",
+    },
+    "change_of_affiliating_university": {
+        "rule_id": "AFFIL-RESOLUTION-F3",
+        "rule_name": "Trust / Society Resolution in Format 3 (Change of Affiliating University / Board)",
+        "aph_chapter": "Annexure-2",
+        "aph_annexure": "Annexure-2 Section 2.11.ii & Format 3 Clause xvi (Pages 84, 205)",
+        "aph_clause": "AICTE APH 2024-27 Annexure-2 Section 2.11.ii (Page 84) & Format 3 Clause xvi (Page 205)",
+        "evidence_missing": "No document record for mandatory Trust/Society Resolution in Format 3 (Clause xvi, Page 205) has been uploaded to the application dossier.",
+        "recommendation": "Submit Governing Body / Trust Resolution in AICTE Format 3 (Clause xvi, Page 205) approving the change from the present affiliating University/Board to the new University/Board, with explicit undertaking to obtain NOC from both Universities as mandated by APH Annexure-2 Section 2.11.ii (Page 84).",
+        "doc_purpose": "approving change of affiliating University/Board and applying for NOC to both Universities",
+    },
+    "reduction_in_intake": {
+        "rule_id": "INTAKE-RESOLUTION-F3",
+        "rule_name": "Trust / Society Resolution in Format 3 (Reduction in Intake)",
+        "aph_chapter": "Chapter II",
+        "aph_annexure": "Annexure-2 Section 2.9.ii & Format 3 Clause xiii (Pages 83, 205)",
+        "aph_clause": "AICTE APH 2024-27 Annexure-2 Section 2.9.ii & Format 3 Clause xiii (Pages 83, 205)",
+        "evidence_missing": "No document record for mandatory Trust/Society Resolution in Format 3 (Clause xiii) has been uploaded to the application dossier.",
+        "recommendation": "Submit Governing Body / Trust Resolution in AICTE Format 3 (Clause xiii, Page 205) approving Reduction in Intake as mandated by APH Annexure-2 Section 2.9.ii (Page 83).",
+        "doc_purpose": "approving Reduction in Intake",
+    },
+    "closure_of_course": {
+        "rule_id": "INTAKE-RESOLUTION-F3",
+        "rule_name": "Trust / Society Resolution in Format 3 (Closure of Course)",
+        "aph_chapter": "Chapter II",
+        "aph_annexure": "Annexure-2 Section 2.9.ii & Format 3 Clause xiii (Pages 83, 205)",
+        "aph_clause": "AICTE APH 2024-27 Annexure-2 Section 2.9.ii & Format 3 Clause xiii (Pages 83, 205)",
+        "evidence_missing": "No document record for mandatory Trust/Society Resolution in Format 3 (Clause xiii) has been uploaded to the application dossier.",
+        "recommendation": "Submit Governing Body / Trust Resolution in AICTE Format 3 (Clause xiii, Page 205) approving Closure of Course(s)/Programme(s) as mandated by APH Annexure-2 Section 2.9.ii (Page 83).",
+        "doc_purpose": "approving Closure of Course(s)",
+    },
+    "closure_of_institution": {
+        "rule_id": "INTAKE-RESOLUTION-F3",
+        "rule_name": "Trust / Society Resolution in Format 3 (Closure of Institution)",
+        "aph_chapter": "Chapter II",
+        "aph_annexure": "Annexure-2 Section 2.7.viii & Format 3 Clause xi (Pages 83, 205)",
+        "aph_clause": "AICTE APH 2024-27 Annexure-2 Section 2.7.viii & Format 3 Clause xi (Pages 83, 205)",
+        "evidence_missing": "No document record for mandatory Trust/Society Resolution in Format 3 (Clause xi) has been uploaded to the application dossier.",
+        "recommendation": "Submit Governing Body / Trust Resolution in AICTE Format 3 (Clause xi, Page 205) approving Closure of the Institution as mandated by APH Annexure-2 Section 2.7.viii (Page 83).",
+        "doc_purpose": "approving Closure of the Institution",
+    },
+    "merger_of_institutions": {
+        "rule_id": "INTAKE-RESOLUTION-F3",
+        "rule_name": "Trust / Society Resolution in Format 3 (Merger of Institutions)",
+        "aph_chapter": "Chapter II",
+        "aph_annexure": "Annexure-2 Section 2.4.iii & Format 3 Clause viii (Pages 82, 205)",
+        "aph_clause": "AICTE APH 2024-27 Annexure-2 Section 2.4.iii & Format 3 Clause viii (Pages 82, 205)",
+        "evidence_missing": "No document record for mandatory Trust/Society Resolution in Format 3 (Clause viii) has been uploaded to the application dossier.",
+        "recommendation": "Submit Governing Body / Trust Resolution in AICTE Format 3 (Clause viii, Page 205) approving Merger of Institutions as mandated by APH Annexure-2 Section 2.4.iii (Page 82).",
+        "doc_purpose": "approving Merger of Institutions",
+    },
+    "merger_of_courses": {
+        "rule_id": "INTAKE-RESOLUTION-F3",
+        "rule_name": "Trust / Society Resolution in Format 3 (Merger of Courses)",
+        "aph_chapter": "Chapter II",
+        "aph_annexure": "Annexure-2 Section 2.9.ii & Format 3 Clause xiii (Pages 83, 205)",
+        "aph_clause": "AICTE APH 2024-27 Annexure-2 Section 2.9.ii & Format 3 Clause xiii (Pages 83, 205)",
+        "evidence_missing": "No document record for mandatory Trust/Society Resolution in Format 3 (Clause xiii) has been uploaded to the application dossier.",
+        "recommendation": "Submit Governing Body / Trust Resolution in AICTE Format 3 (Clause xiii, Page 205) approving Merger of Courses as mandated by APH Annexure-2 Section 2.9.ii (Page 83).",
+        "doc_purpose": "approving Merger of Courses",
+    },
+    "conversion_of_institution_type": {
+        "rule_id": "INTAKE-RESOLUTION-F3",
+        "rule_name": "Trust / Society Resolution in Format 3 (Conversion of Institution Type)",
+        "aph_chapter": "Chapter II",
+        "aph_annexure": "Annexure-2 Section 2.8.iii & Format 3 Clause xii (Pages 83, 205)",
+        "aph_clause": "AICTE APH 2024-27 Annexure-2 Section 2.8.iii & Format 3 Clause xii (Pages 83, 205)",
+        "evidence_missing": "No document record for mandatory Trust/Society Resolution in Format 3 (Clause xii) has been uploaded to the application dossier.",
+        "recommendation": "Submit Governing Body / Trust Resolution in AICTE Format 3 (Clause xii, Page 205) approving Change of Type of Institution (converted into University) as mandated by APH Annexure-2 Section 2.8.iii (Page 83).",
+        "doc_purpose": "approving Change of Type of Institution",
+    },
+    "nri_supernumerary_seats": {
+        "rule_id": "INTAKE-RESOLUTION-F3",
+        "rule_name": "Trust / Society Resolution in Format 3 (NRI Seats)",
+        "aph_chapter": "Chapter II",
+        "aph_annexure": "Annexure-2 Section 2.2 & Format 3 Clause iii (Pages 81, 205)",
+        "aph_clause": "AICTE APH 2024-27 Annexure-2 Section 2.2 & Format 3 Clause iii (Pages 81, 205)",
+        "evidence_missing": "No document record for mandatory Trust/Society Resolution in Format 3 (Clause iii) has been uploaded to the application dossier.",
+        "recommendation": "Submit Governing Body / Trust Resolution in AICTE Format 3 (Clause iii, Page 205) approving Introduction of NRIs in Programme(s)/Course(s) as mandated by APH Annexure-2 Section 2.2 (Page 81).",
+        "doc_purpose": "approving Introduction of NRIs in Programme(s)/Course(s)",
+    },
+}
+
 def check_resolution_format_3(app_data: Dict[str, Any], extracted_docs: Dict[str, Dict[str, Any]]) -> RuleFinding:
     """
     Check Trust/Society/Company Resolution in Format 3.
-    AICTE APH 2024-27 Chapter II Clause 2.6.b.iii, Annexure-2 Section 2.6.iii & Format 3 (Pages 16, 82, 205).
+    Dynamically maps to verified category-specific statutory requirements from AICTE APH 2024-27
+    Annexure-2 and Format 3 (Page 205). Never leaks Section 2.6 intake expansion wording into
+    non-expansion categories.
     """
-    rule_id = "INTAKE-RESOLUTION-F3"
-    rule_name = "Trust / Society Resolution in Format 3"
-    aph_clause = "AICTE APH 2024-27 Annexure-2 Section 2.6.iii & Format 3 (Pages 82, 205)"
+    canonical_code, display_label, is_supported = normalize_category(app_data)
+    cfg = CATEGORY_RESOLUTION_CONFIG.get(canonical_code)
+
+    if not cfg:
+        # Unmapped category safe fallback: NEVER default to Section 2.6 intake expansion!
+        return RuleFinding(
+            rule_id="INTAKE-RESOLUTION-F3",
+            rule_name="Trust / Society Resolution in Format 3",
+            status="NEEDS_HUMAN_REVIEW",
+            aph_clause="AICTE APH 2024-27 Format 3 (Page 205)",
+            aph_chapter="General Provisions",
+            aph_annexure="Annexure-2 & Format 3",
+            evidence=f"Application category '{canonical_code}' requires manual Scrutiny Committee review to determine specific Format 3 resolution clauses.",
+            recommendation="Scrutiny Committee officer must manually verify Trust/Society Resolution requirements under APH 2024-27 for this category.",
+        )
+
+    rule_id = cfg.get("rule_id", "INTAKE-RESOLUTION-F3")
+    rule_name = cfg.get("rule_name", "Trust / Society Resolution in Format 3")
+    aph_clause = cfg["aph_clause"]
+    aph_chapter = cfg.get("aph_chapter", "Chapter II")
+    aph_annexure = cfg.get("aph_annexure", "Annexure-2")
+    doc_purpose = cfg.get("doc_purpose", "approving statutory change")
 
     docs = app_data.get("documents", [])
     target_doc = find_document_by_type_or_keywords(docs, ["resolution", "format_3", "format 3", "governing_body_resolution", "trust_resolution"])
@@ -129,10 +283,10 @@ def check_resolution_format_3(app_data: Dict[str, Any], extracted_docs: Dict[str
             rule_name=rule_name,
             status="DEFICIENT",
             aph_clause=aph_clause,
-            aph_chapter="Chapter II",
-            aph_annexure="Annexure-2",
-            evidence="No document record for mandatory Trust/Society Resolution in Format 3 has been uploaded to the application dossier.",
-            recommendation="Submit Governing Body / Trust Resolution in Format 3 approving the expansion and allocating requisite land, building, and funds.",
+            aph_chapter=aph_chapter,
+            aph_annexure=aph_annexure,
+            evidence=cfg.get("evidence_missing", "No document record for mandatory Trust/Society Resolution in Format 3 has been uploaded to the application dossier."),
+            recommendation=cfg["recommendation"],
         )
 
     doc_id = target_doc.get("id")
@@ -142,8 +296,8 @@ def check_resolution_format_3(app_data: Dict[str, Any], extracted_docs: Dict[str
             rule_name=rule_name,
             status="TECHNICAL_ERROR",
             aph_clause=aph_clause,
-            aph_chapter="Chapter II",
-            aph_annexure="Annexure-2",
+            aph_chapter=aph_chapter,
+            aph_annexure=aph_annexure,
             evidence=f"Document metadata record for '{target_doc.get('originalFilename')}' exists, but the physical file is unavailable on server storage.",
             document_id=doc_id,
             document_name=target_doc.get("originalFilename"),
@@ -160,12 +314,12 @@ def check_resolution_format_3(app_data: Dict[str, Any], extracted_docs: Dict[str
             rule_name=rule_name,
             status="NEEDS_HUMAN_REVIEW",
             aph_clause=aph_clause,
-            aph_chapter="Chapter II",
-            aph_annexure="Annexure-2",
+            aph_chapter=aph_chapter,
+            aph_annexure=aph_annexure,
             evidence=f"Resolution document '{target_doc.get('originalFilename')}' is uploaded and available, but appears to be a scanned image without digital text.",
             document_id=doc_id,
             document_name=target_doc.get("originalFilename"),
-            recommendation="Scrutiny Committee officer must visually verify the meeting minutes, signatures of Chairman/Secretary, and Format 3 resolution terms.",
+            recommendation=f"Scrutiny Committee officer must visually verify the meeting minutes, signatures of Chairman/Secretary, and Format 3 resolution terms for {doc_purpose}.",
         )
 
     res_pattern = re.compile(
@@ -178,9 +332,9 @@ def check_resolution_format_3(app_data: Dict[str, Any], extracted_docs: Dict[str
             rule_name=rule_name,
             status="COMPLIANT",
             aph_clause=aph_clause,
-            aph_chapter="Chapter II",
-            aph_annexure="Annexure-2",
-            evidence=f"Document '{target_doc.get('originalFilename')}' confirms formal executive resolution approving institutional expansion as prescribed in Format 3.",
+            aph_chapter=aph_chapter,
+            aph_annexure=aph_annexure,
+            evidence=f"Document '{target_doc.get('originalFilename')}' confirms formal executive resolution {doc_purpose} as prescribed in Format 3.",
             document_id=doc_id,
             document_name=target_doc.get("originalFilename"),
             recommendation="Resolution verified. Scrutiny Committee should confirm signatures of Chairman and Secretary.",
@@ -191,12 +345,12 @@ def check_resolution_format_3(app_data: Dict[str, Any], extracted_docs: Dict[str
         rule_name=rule_name,
         status="NEEDS_HUMAN_REVIEW",
         aph_clause=aph_clause,
-        aph_chapter="Chapter II",
-        aph_annexure="Annexure-2",
+        aph_chapter=aph_chapter,
+        aph_annexure=aph_annexure,
         evidence=f"Document '{target_doc.get('originalFilename')}' uploaded as Resolution lacks standard resolution wording ('resolved that' / 'governing body').",
         document_id=doc_id,
         document_name=target_doc.get("originalFilename"),
-        recommendation="Scrutiny officer must visually verify the meeting minutes and authorization seal.",
+        recommendation=f"Scrutiny officer must visually verify the meeting minutes and authorization seal against AICTE Format 3 ({doc_purpose}).",
     )
 
 
@@ -1015,6 +1169,152 @@ def check_nri_statutory_quota(app_data: Dict[str, Any], extracted_docs: Dict[str
 # 7. RESIDUAL & UNMAPPED CATEGORY RULES
 # ==============================================================================
 
+def check_affiliating_university_proposed_consent(
+    app_data: Dict[str, Any], extracted_docs: Dict[str, Dict[str, Any]]
+) -> RuleFinding:
+    """
+    Check Affiliation Consent / In-Principle NOC from Proposed University/Board.
+    AICTE APH 2024-27 Annexure-2 Section 2.11 & Format 3 Clause xvi (Pages 84, 205).
+    Mandatory for Change of Affiliating University / Board.
+    """
+    rule_id = "AFFIL-PROPOSED-CONSENT"
+    rule_name = "Affiliation Consent / In-Principle NOC from Proposed University"
+    aph_clause = "AICTE APH 2024-27 Format 3 Clause xvi (Page 205) & Annexure-2 Section 2.11"
+    aph_chapter = "Annexure-2"
+    aph_annexure = "Section 2.11 & Format 3 Clause xvi (Pages 84, 205)"
+
+    docs = app_data.get("documents", [])
+    target_doc = find_document_by_type_or_keywords(
+        docs,
+        [
+            "proposed_university_consent", "proposed_university_noc", "proposed_affiliation_consent",
+            "proposed_affiliation_noc", "proposed_consent", "affiliation_consent",
+            "proposed university", "consent from proposed", "proposed_affiliating_body",
+            "consent_proposed_university",
+        ],
+    )
+
+    if not target_doc:
+        return RuleFinding(
+            rule_id=rule_id,
+            rule_name=rule_name,
+            status="DEFICIENT",
+            aph_clause=aph_clause,
+            aph_chapter=aph_chapter,
+            aph_annexure=aph_annexure,
+            evidence=(
+                "No Affiliation Consent / in-principle NOC from the proposed University/Board has been "
+                "uploaded to the application dossier. As mandated by APH 2024-27 Annexure-2 Section 2.11 "
+                "and Format 3 Clause xvi, an institution seeking affiliation transfer must obtain and submit "
+                "concurrence/consent from the receiving University/Board."
+            ),
+            recommendation=(
+                "Submit in-principle NOC / Affiliation Consent from the proposed University/Board "
+                "confirming willingness to affiliate the institution, duly signed by the Registrar/Competent Authority."
+            ),
+        )
+
+    doc_id = target_doc.get("id")
+    if doc_id not in extracted_docs or extracted_docs[doc_id].get("unavailable"):
+        return RuleFinding(
+            rule_id=rule_id,
+            rule_name=rule_name,
+            status="TECHNICAL_ERROR",
+            aph_clause=aph_clause,
+            aph_chapter=aph_chapter,
+            aph_annexure=aph_annexure,
+            evidence=f"Document record for '{target_doc.get('originalFilename')}' exists but the physical file is unavailable on server storage.",
+            document_id=doc_id,
+            document_name=target_doc.get("originalFilename"),
+            recommendation="Technical verification required: Scrutiny officer must check document storage.",
+        )
+
+    extracted = extracted_docs.get(doc_id, {})
+    full_text = extracted.get("full_text", "")
+    is_scanned = extracted.get("is_scanned", False)
+    is_placeholder = extracted.get("is_placeholder", False)
+
+    # Detect synthetic fixture / verification stub
+    if is_placeholder or "official aicte regulatory document verification copy" in full_text.lower():
+        return RuleFinding(
+            rule_id=rule_id,
+            rule_name=rule_name,
+            status="DEFICIENT",
+            aph_clause=aph_clause,
+            aph_chapter=aph_chapter,
+            aph_annexure=aph_annexure,
+            evidence=(
+                f"Document '{target_doc.get('originalFilename')}' (ID: {doc_id}) was uploaded but "
+                f"contains only a system-generated verification stub — no substantive proposed university "
+                f"consent content could be extracted. The file is a placeholder fixture, not a genuine "
+                f"affiliation consent letter from the proposed University/Board."
+            ),
+            document_id=doc_id,
+            document_name=target_doc.get("originalFilename"),
+            recommendation=(
+                "Replace the uploaded placeholder with the genuine in-principle Affiliation Consent / NOC "
+                "issued by the proposed University/Board registrar."
+            ),
+        )
+
+    if is_scanned or len(full_text.strip()) < 50:
+        return RuleFinding(
+            rule_id=rule_id,
+            rule_name=rule_name,
+            status="NEEDS_HUMAN_REVIEW",
+            aph_clause=aph_clause,
+            aph_chapter=aph_chapter,
+            aph_annexure=aph_annexure,
+            evidence=(
+                f"Document '{target_doc.get('originalFilename')}' is uploaded as Proposed University Consent "
+                f"but is a scanned image without a digital text layer."
+            ),
+            document_id=doc_id,
+            document_name=target_doc.get("originalFilename"),
+            recommendation=(
+                "Scrutiny officer must visually verify the proposed university registrar seal, signature, "
+                "and in-principle consent to affiliate the institution."
+            ),
+        )
+
+    consent_pattern = re.compile(
+        r"\b(?:consent|in-principle|no\s+objection|affiliat(?:e|ion)|willingness|readiness|board|university)\b",
+        re.IGNORECASE,
+    )
+    print(f"DEBUG PROPOSED CONSENT: pattern={repr(consent_pattern.pattern)}, full_text len={len(full_text)}, match={consent_pattern.search(full_text)}")
+    if consent_pattern.search(full_text):
+        return RuleFinding(
+            rule_id=rule_id,
+            rule_name=rule_name,
+            status="COMPLIANT",
+            aph_clause=aph_clause,
+            aph_chapter=aph_chapter,
+            aph_annexure=aph_annexure,
+            evidence=(
+                f"Document '{target_doc.get('originalFilename')}' contains text indicators consistent "
+                f"with in-principle affiliation consent from the proposed University/Board."
+            ),
+            document_id=doc_id,
+            document_name=target_doc.get("originalFilename"),
+            recommendation=(
+                "Proposed university consent text verified. Scrutiny officer must verify registrar seal and authenticity."
+            ),
+        )
+
+    return RuleFinding(
+        rule_id=rule_id,
+        rule_name=rule_name,
+        status="NEEDS_HUMAN_REVIEW",
+        aph_clause=aph_clause,
+        aph_chapter=aph_chapter,
+        aph_annexure=aph_annexure,
+        evidence=f"Document '{target_doc.get('originalFilename')}' uploaded as Proposed University Consent lacks standard consent or affiliation phrasing.",
+        document_id=doc_id,
+        document_name=target_doc.get("originalFilename"),
+        recommendation="Scrutiny officer must visually examine the document for valid proposed university concurrence.",
+    )
+
+
 def check_other_statutory_application(app_data: Dict[str, Any], extracted_docs: Dict[str, Dict[str, Any]] = None) -> RuleFinding:
     """
     Statutory Scrutiny for Non-Standard / Miscellaneous Petitions.
@@ -1033,6 +1333,335 @@ def check_other_statutory_application(app_data: Dict[str, Any], extracted_docs: 
         aph_chapter="General / Statutory",
         evidence="Application filed under 'Other Statutory AICTE Application'. Does not conform to standard automated EoA/Intake workflows.",
         recommendation="The AICTE Scrutiny Committee must review the custom statutory petition, court order, or special government directive on a case-by-case basis.",
+    )
+
+
+
+# ==============================================================================
+# 9. CHANGE OF AFFILIATING UNIVERSITY / BOARD RULES (Chapter II Clause 2.11)
+# ==============================================================================
+# APH 2024-27 Section 2.11 governs "Change in the Name of the Affiliating
+# University/Board". For a transfer to a different or new university/board,
+# the same affiliation-change document set applies per prevailing AICTE practice.
+# Required documents under Section 2.11:
+#   (i)  NOC from affiliating University/Board in Format 2, or sealed receipt.
+#   (ii) Trust/Society/Company Resolution in Format 3, signed by Chairperson/
+#        Secretary, approving the change in affiliating University/Board.
+# The evaluation wording is distinct from Increase in Intake (Section 2.6):
+#   - No land/building allocation language.
+#   - No expansion or additional course language.
+#   - Subject matter is affiliation transfer, not capacity expansion.
+# ==============================================================================
+
+def check_affiliating_university_noc_format2(
+    app_data: Dict[str, Any], extracted_docs: Dict[str, Dict[str, Any]]
+) -> RuleFinding:
+    """
+    Check NOC from affiliating University/Board in Format 2 (or sealed receipt).
+    AICTE APH 2024-27 Chapter II Clause 2.11 & Annexure-2 Section 2.11.i & Format 2 Clause xiv (Pages 84, 202).
+    Applicable exclusively to Change of Affiliating University / Board.
+    """
+    rule_id = "AFFIL-UNIV-NOC-F2"
+    rule_name = "NOC from Affiliating University / Board in Format 2 (Change of Affiliation)"
+    aph_clause = "AICTE APH 2024-27 Annexure-2 Section 2.11.i (Page 84) & Format 2 Clause xiv (Page 202)"
+    aph_chapter = "Annexure-2"
+    aph_annexure = "Section 2.11.i & Format 2 Clause xiv (Pages 84, 202)"
+
+    docs = app_data.get("documents", [])
+    target_doc = find_document_by_type_or_keywords(
+        docs,
+        ["university_noc", "format_2", "format 2", "noc", "affiliating_university_noc",
+         "university noc", "board noc", "affiliation noc"],
+    )
+
+    if not target_doc:
+        return RuleFinding(
+            rule_id=rule_id,
+            rule_name=rule_name,
+            status="DEFICIENT",
+            aph_clause=aph_clause,
+            aph_chapter=aph_chapter,
+            aph_annexure=aph_annexure,
+            evidence=(
+                "No NOC from the affiliating University/Board in Format 2 (or officially sealed receipt "
+                "confirming submission) has been uploaded. This document is mandatory under APH 2024-27 "
+                "Chapter II Clause 2.11 for Change of Affiliating University/Board."
+            ),
+            recommendation=(
+                "Submit No Objection Certificate from the current affiliating University/Board in AICTE Format 2 "
+                "(Page 202, Clause xiv), duly signed and sealed by the Registrar/authorized signatory (or sealed "
+                "receipt confirming submission as per APH Annexure-2 Section 2.11.i, Page 84)."
+            ),
+        )
+
+    doc_id = target_doc.get("id")
+    if doc_id not in extracted_docs or extracted_docs[doc_id].get("unavailable"):
+        return RuleFinding(
+            rule_id=rule_id,
+            rule_name=rule_name,
+            status="TECHNICAL_ERROR",
+            aph_clause=aph_clause,
+            aph_chapter=aph_chapter,
+            aph_annexure=aph_annexure,
+            evidence=(
+                f"Document record for '{target_doc.get('originalFilename')}' exists but the physical "
+                f"file is unavailable on server storage."
+            ),
+            document_id=doc_id,
+            document_name=target_doc.get("originalFilename"),
+            recommendation="Technical verification required: Scrutiny officer must check document storage.",
+        )
+
+    extracted = extracted_docs.get(doc_id, {})
+    full_text = extracted.get("full_text", "")
+    is_scanned = extracted.get("is_scanned", False)
+    is_placeholder = extracted.get("is_placeholder", False)
+
+    # Detect synthetic fixture / verification stub
+    # The stub header is the authoritative signal — length is NOT the guard since stubs
+    # can be > 200 chars when they include document metadata fields.
+    if is_placeholder or "official aicte regulatory document verification copy" in full_text.lower():
+        return RuleFinding(
+            rule_id=rule_id,
+            rule_name=rule_name,
+            status="DEFICIENT",
+            aph_clause=aph_clause,
+            aph_chapter=aph_chapter,
+            aph_annexure=aph_annexure,
+            evidence=(
+                f"Document '{target_doc.get('originalFilename')}' (ID: {doc_id}) was uploaded but "
+                f"contains only a system-generated verification stub — no substantive University/Board "
+                f"NOC content could be extracted. The file appears to be a placeholder fixture, not a "
+                f"genuine affiliating university NOC in Format 2."
+            ),
+            document_id=doc_id,
+            document_name=target_doc.get("originalFilename"),
+            recommendation=(
+                "Replace the uploaded placeholder with the genuine NOC document from the affiliating "
+                "University/Board in AICTE Format 2, duly signed by the Registrar/Controller of Examinations."
+            ),
+        )
+
+    if is_scanned or len(full_text.strip()) < 50:
+        return RuleFinding(
+            rule_id=rule_id,
+            rule_name=rule_name,
+            status="NEEDS_HUMAN_REVIEW",
+            aph_clause=aph_clause,
+            aph_chapter=aph_chapter,
+            aph_annexure=aph_annexure,
+            evidence=(
+                f"Document '{target_doc.get('originalFilename')}' is uploaded but is a scanned image "
+                f"without a digital text layer. Substantive NOC content cannot be verified automatically."
+            ),
+            document_id=doc_id,
+            document_name=target_doc.get("originalFilename"),
+            recommendation=(
+                "Scrutiny officer must visually verify the University/Board registrar seal, signature, "
+                "and that the NOC explicitly consents to the change of affiliating university/board "
+                "as prescribed in Format 2."
+            ),
+        )
+
+    noc_pattern = re.compile(
+        r"\b(?:no\s+objection|noc|format\s*[-–]?\s*2|affiliat(?:ing|ion)|registrar|university|board)\b",
+        re.IGNORECASE,
+    )
+    if noc_pattern.search(full_text):
+        return RuleFinding(
+            rule_id=rule_id,
+            rule_name=rule_name,
+            status="COMPLIANT",
+            aph_clause=aph_clause,
+            aph_chapter=aph_chapter,
+            aph_annexure=aph_annexure,
+            evidence=(
+                f"Document '{target_doc.get('originalFilename')}' contains text indicators consistent "
+                f"with a University/Board NOC in Format 2 (affiliation consent language detected)."
+            ),
+            document_id=doc_id,
+            document_name=target_doc.get("originalFilename"),
+            recommendation=(
+                "NOC text criteria satisfied. Scrutiny officer must confirm: registrar/controller seal "
+                "is authentic, consent is explicitly for the change of affiliating university/board, "
+                "and document is in AICTE Format 2."
+            ),
+        )
+
+    return RuleFinding(
+        rule_id=rule_id,
+        rule_name=rule_name,
+        status="NEEDS_HUMAN_REVIEW",
+        aph_clause=aph_clause,
+        aph_chapter=aph_chapter,
+        aph_annexure=aph_annexure,
+        evidence=(
+            f"Document '{target_doc.get('originalFilename')}' uploaded as University NOC lacks standard "
+            f"NOC/affiliation consent language."
+        ),
+        document_id=doc_id,
+        document_name=target_doc.get("originalFilename"),
+        recommendation="Scrutiny officer must visually verify the NOC content, university seal, and Format 2 compliance.",
+    )
+
+
+def check_affiliating_university_resolution_format3(
+    app_data: Dict[str, Any], extracted_docs: Dict[str, Dict[str, Any]]
+) -> RuleFinding:
+    """
+    Check Trust/Society Resolution in Format 3 for Change of Affiliating University/Board.
+    AICTE APH 2024-27 Annexure-2 Section 2.11.ii (Page 84) & Format 3 Clause xvi (Page 205).
+    The resolution must specifically approve the change of affiliating university/board and resolve
+    to apply for NOC to both Universities — NOT expansion of intake, land/building allocation, or additional courses.
+    This rule is distinct from INTAKE-RESOLUTION-F3 which targets Section 2.6.
+    """
+    rule_id = "AFFIL-RESOLUTION-F3"
+    rule_name = "Trust / Society Resolution in Format 3 (Change of Affiliating University / Board)"
+    aph_clause = "AICTE APH 2024-27 Annexure-2 Section 2.11.ii (Page 84) & Format 3 Clause xvi (Page 205)"
+    aph_chapter = "Annexure-2"
+    aph_annexure = "Section 2.11.ii & Format 3 Clause xvi (Pages 84, 205)"
+
+    docs = app_data.get("documents", [])
+    target_doc = find_document_by_type_or_keywords(
+        docs,
+        ["resolution", "format_3", "format 3", "governing_body_resolution",
+         "trust_resolution", "society_resolution"],
+    )
+
+    if not target_doc:
+        return RuleFinding(
+            rule_id=rule_id,
+            rule_name=rule_name,
+            status="DEFICIENT",
+            aph_clause=aph_clause,
+            aph_chapter=aph_chapter,
+            aph_annexure=aph_annexure,
+            evidence=(
+                "No Trust/Society/Company Resolution in Format 3 has been uploaded. This document is "
+                "mandatory under APH 2024-27 Clause 2.11 for Change of Affiliating University/Board. "
+                "The resolution must be signed by the Chairperson/Secretary and must specifically "
+                "approve the change in the affiliating University/Board — not intake expansion or "
+                "land/building allocation."
+            ),
+            recommendation=(
+                "Submit Governing Body / Trust Resolution in AICTE Format 3 (Page 205, Clause xvi) approving the "
+                "change from the present affiliating University/Board to the new University/Board, with explicit "
+                "undertaking to obtain NOC from both Universities as mandated by APH Annexure-2 Section 2.11.ii (Page 84)."
+            ),
+        )
+
+    doc_id = target_doc.get("id")
+    if doc_id not in extracted_docs or extracted_docs[doc_id].get("unavailable"):
+        return RuleFinding(
+            rule_id=rule_id,
+            rule_name=rule_name,
+            status="TECHNICAL_ERROR",
+            aph_clause=aph_clause,
+            aph_chapter=aph_chapter,
+            aph_annexure=aph_annexure,
+            evidence=(
+                f"Document record for '{target_doc.get('originalFilename')}' exists but the physical "
+                f"file is unavailable on server storage for inspection."
+            ),
+            document_id=doc_id,
+            document_name=target_doc.get("originalFilename"),
+            recommendation="Scrutiny officer must check document storage and request re-upload if the file is missing.",
+        )
+
+    extracted = extracted_docs.get(doc_id, {})
+    full_text = extracted.get("full_text", "")
+    is_scanned = extracted.get("is_scanned", False)
+    is_placeholder = extracted.get("is_placeholder", False)
+
+    # Detect synthetic fixture / verification stub
+    # The stub header is the authoritative signal — length is NOT the guard.
+    if is_placeholder or "official aicte regulatory document verification copy" in full_text.lower():
+        return RuleFinding(
+            rule_id=rule_id,
+            rule_name=rule_name,
+            status="DEFICIENT",
+            aph_clause=aph_clause,
+            aph_chapter=aph_chapter,
+            aph_annexure=aph_annexure,
+            evidence=(
+                f"Document '{target_doc.get('originalFilename')}' (ID: {doc_id}) was uploaded but "
+                f"contains only a system-generated verification stub — no substantive resolution content "
+                f"could be extracted. The file is a placeholder fixture, not a genuine Trust/Society "
+                f"Resolution in Format 3."
+            ),
+            document_id=doc_id,
+            document_name=target_doc.get("originalFilename"),
+            recommendation=(
+                "Replace the uploaded placeholder with the genuine Governing Body / Trust / Society "
+                "Resolution in AICTE Format 3, signed by the Chairperson and Secretary, specifically "
+                "approving the change of affiliating University/Board."
+            ),
+        )
+
+    if is_scanned or len(full_text.strip()) < 50:
+        return RuleFinding(
+            rule_id=rule_id,
+            rule_name=rule_name,
+            status="NEEDS_HUMAN_REVIEW",
+            aph_clause=aph_clause,
+            aph_chapter=aph_chapter,
+            aph_annexure=aph_annexure,
+            evidence=(
+                f"Resolution document '{target_doc.get('originalFilename')}' is uploaded but appears "
+                f"to be a scanned image without a digital text layer."
+            ),
+            document_id=doc_id,
+            document_name=target_doc.get("originalFilename"),
+            recommendation=(
+                "Scrutiny officer must visually verify the meeting minutes, signatures of Chairperson "
+                "and Secretary, and that the resolution specifically approves the change of affiliating "
+                "University/Board in AICTE Format 3 (not a generic expansion or land-allocation resolution)."
+            ),
+        )
+
+    res_pattern = re.compile(
+        r"\b(?:resolved\s+that|resolution|executive\s+meeting|governing\s+body|format\s*[-–]?\s*3)\b",
+        re.IGNORECASE,
+    )
+    if res_pattern.search(full_text):
+        return RuleFinding(
+            rule_id=rule_id,
+            rule_name=rule_name,
+            status="COMPLIANT",
+            aph_clause=aph_clause,
+            aph_chapter=aph_chapter,
+            aph_annexure=aph_annexure,
+            evidence=(
+                f"Document '{target_doc.get('originalFilename')}' contains formal resolution language "
+                f"consistent with Format 3 requirements for Change of Affiliating University/Board."
+            ),
+            document_id=doc_id,
+            document_name=target_doc.get("originalFilename"),
+            recommendation=(
+                "Resolution text criteria satisfied. Scrutiny officer must confirm: signatures of "
+                "Chairperson and Secretary are present, the resolution specifically authorises the "
+                "change of affiliating University/Board (not intake expansion), and Format 3 template "
+                "is used as prescribed in APH 2024-27 Clause 2.11."
+            ),
+        )
+
+    return RuleFinding(
+        rule_id=rule_id,
+        rule_name=rule_name,
+        status="NEEDS_HUMAN_REVIEW",
+        aph_clause=aph_clause,
+        aph_chapter=aph_chapter,
+        aph_annexure=aph_annexure,
+        evidence=(
+            f"Document '{target_doc.get('originalFilename')}' uploaded as a Resolution lacks standard "
+            f"resolution wording ('resolved that' / 'governing body'). Cannot confirm Format 3 compliance."
+        ),
+        document_id=doc_id,
+        document_name=target_doc.get("originalFilename"),
+        recommendation=(
+            "Scrutiny officer must inspect the meeting minutes, official seal, and resolution text to "
+            "confirm compliance with AICTE Format 3 requirements under APH Clause 2.11."
+        ),
     )
 
 

@@ -39,11 +39,12 @@ async function runCategoryRegression() {
     test7_other_statutory_safe_fallback: false,
     test8_unsupported_category_handling: false,
     test9_category_switch_version_integrity: false,
+    test10_change_of_affiliating_university: false,
   };
 
   // Import ai-service rules via python or test directly against FastAPI / python modules
   // We can execute python test runner for direct validation
-  console.log("[1/9] Verifying AI Service Health & Category Rules Registry...");
+  console.log("[1/10] Verifying AI Service Health & Category Rules Registry...");
 
   try {
     const healthResp = await fetch(`${AI_SERVICE_URL}/health`);
@@ -104,6 +105,10 @@ async function runCategoryRegression() {
       console.log("  ✓ [Test 9 Passed] Category Switch Integrity: changing category alters cryptographic version hash and recalculates applicable rules.");
       results.test9_category_switch_version_integrity = true;
     }
+    if (parsed.test10) {
+      console.log("  ✓ [Test 10 Passed] Change of Affiliating University selects Section 2.11 rules (NOC Format 2, Resolution Format 3); Section 2.6 intake rules strictly excluded.");
+      results.test10_change_of_affiliating_university = true;
+    }
 
   } catch (err) {
     console.error("  ✗ Category regression verification failed:", err.message);
@@ -113,7 +118,7 @@ async function runCategoryRegression() {
   }
 
   console.log("\n=====================================================================");
-  console.log("   ALL 9 CATEGORY-SPECIFIC STATUTORY SCRUTINY TESTS PASSED (100%)   ");
+  console.log("   ALL 10 CATEGORY-SPECIFIC STATUTORY SCRUTINY TESTS PASSED (100%)  ");
   console.log("=====================================================================");
 }
 

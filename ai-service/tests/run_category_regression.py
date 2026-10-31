@@ -141,4 +141,24 @@ hash2 = compute_application_version_hash({**app_base, "applicationCategory": "Cl
 assert hash1 != hash2, "Changing application category must alter the version hash"
 results["test9"] = True
 
+# Test 10: Change of Affiliating University / Board (APH Section 2.11)
+app_affil = {"applicationCategory": "Change of Affiliating University / Board", "documents": []}
+rules_affil = [r.rule_id for r in get_applicable_rules("change_of_affiliating_university", app_affil)]
+assert "AFFIL-UNIV-NOC-F2" in rules_affil, "Missing NOC Format 2 rule for affiliation change"
+assert "AFFIL-RESOLUTION-F3" in rules_affil, "Missing Resolution Format 3 rule for affiliation change"
+assert "AFFIL-PROPOSED-CONSENT" in rules_affil, "Missing Proposed University Consent rule for affiliation change"
+assert "INTAKE-RESOLUTION-F3" not in rules_affil, "Section 2.6 intake resolution must NOT apply to affiliation change"
+assert "INTAKE-AFFIDAVIT8" not in rules_affil, "Affidavit 8 must NOT apply to affiliation change"
+assert "INTAKE-CORE-BRANCHES" not in rules_affil, "Core branches must NOT apply to affiliation change"
+
+res_affil = rule_engine.evaluate_application(app_affil, {})
+f_noc = next(f for f in res_affil.findings if f.rule_id == "AFFIL-UNIV-NOC-F2")
+f_res = next(f for f in res_affil.findings if f.rule_id == "AFFIL-RESOLUTION-F3")
+assert f_noc.status == "DEFICIENT"
+assert "2.11" in f_noc.aph_clause and "2.6" not in f_noc.aph_clause
+assert f_res.status == "DEFICIENT"
+assert "2.11" in f_res.aph_clause and "2.6" not in f_res.aph_clause
+assert "expansion" not in f_res.recommendation.lower() or "affiliat" in f_res.recommendation.lower()
+results["test10"] = True
+
 print(json.dumps(results))

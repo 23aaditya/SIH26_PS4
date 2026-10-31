@@ -90,4 +90,33 @@ class BackendClient:
             resp.raise_for_status()
             return resp.json()
 
+    async def create_internal_notification(
+        self,
+        application_id: str,
+        recipient_id: str,
+        title: str,
+        message: str,
+        priority: str = "normal",
+        action_url: Optional[str] = None,
+        deduplication_key: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Send an internal officer notification through Express backend."""
+        payload = {
+            "applicationId": application_id,
+            "recipientUserId": recipient_id,
+            "title": title,
+            "message": message,
+            "priority": priority,
+            "actionUrl": action_url,
+            "deduplicationKey": deduplication_key,
+        }
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                f"{self.base_url}/agent/notifications",
+                headers={**self.headers, "Content-Type": "application/json"},
+                json=payload,
+            )
+            resp.raise_for_status()
+            return resp.json()
+
 backend_client = BackendClient()

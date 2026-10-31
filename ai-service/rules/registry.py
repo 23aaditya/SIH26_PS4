@@ -33,6 +33,9 @@ from rules.category_rules import (
     check_nri_statutory_quota,
     check_other_statutory_application,
     check_unmapped_category,
+    check_affiliating_university_noc_format2,
+    check_affiliating_university_resolution_format3,
+    check_affiliating_university_proposed_consent,
 )
 
 # Registry catalog defining all statutory rules with APH citations
@@ -143,6 +146,10 @@ RULE_CATALOG: Dict[str, RuleDefinition] = {
         human_review_conditions="Notary seal, deponent signature, and stamp paper value verification.",
         evaluation_function=check_affidavit_8,
     ),
+    # NOTE: change_of_affiliating_university is intentionally excluded from this rule.
+    # That category is governed by APH 2024-27 Section 2.11, not Section 2.6.
+    # See AFFIL-RESOLUTION-F3 below which uses the correct Section 2.11 citation
+    # and affiliation-change wording (not expansion/land-allocation wording).
     "INTAKE-RESOLUTION-F3": RuleDefinition(
         rule_id="INTAKE-RESOLUTION-F3",
         rule_name="Trust / Society Resolution in Format 3",
@@ -152,7 +159,6 @@ RULE_CATALOG: Dict[str, RuleDefinition] = {
             "new_programme",
             "change_of_site",
             "change_of_name",
-            "change_of_affiliating_university",
             "reduction_in_intake",
             "closure_of_course",
             "closure_of_institution",
@@ -372,6 +378,67 @@ RULE_CATALOG: Dict[str, RuleDefinition] = {
         human_review_conditions="Verification of seat matrix against state reservation policy.",
         evaluation_function=check_nri_statutory_quota,
     ),
+    # ── Change of Affiliating University / Board — APH Section 2.11 & Formats 2 & 3 ──
+    # These rules apply EXCLUSIVELY to change_of_affiliating_university.
+    # Grounded strictly in APH 2024-27 Annexure-2 Section 2.11 (Page 84), Format 2 Clause xiv (Page 202),
+    # and Format 3 Clause xvi (Page 205).
+    # Section 2.6 (Increase in Intake/Additional Course) expansion and land/building wording is strictly forbidden.
+    "AFFIL-UNIV-NOC-F2": RuleDefinition(
+        rule_id="AFFIL-UNIV-NOC-F2",
+        rule_name="NOC from Affiliating University / Board in Format 2 (Change of Affiliation)",
+        applicable_application_types=["change_of_affiliating_university"],
+        aph_chapter="Annexure-2",
+        aph_clause="Annexure-2 Section 2.11.i (Page 84) & Format 2 Clause xiv (Page 202)",
+        aph_annexure="Section 2.11.i & Format 2 Clause xiv (Pages 84, 202)",
+        required_document_types=["university_noc", "format_2", "noc"],
+        is_common_check=False,
+        evidence_requirements=(
+            "NOC from the current affiliating University/Board in Format 2 Clause xiv (or officially sealed "
+            "receipt confirming submission), consenting to the change of affiliating University/Board."
+        ),
+        human_review_conditions=(
+            "Visual verification of registrar/controller seal and that NOC explicitly covers the "
+            "affiliation change, not a generic NOC."
+        ),
+        evaluation_function=check_affiliating_university_noc_format2,
+    ),
+    "AFFIL-RESOLUTION-F3": RuleDefinition(
+        rule_id="AFFIL-RESOLUTION-F3",
+        rule_name="Trust / Society Resolution in Format 3 (Change of Affiliating University / Board)",
+        applicable_application_types=["change_of_affiliating_university"],
+        aph_chapter="Annexure-2",
+        aph_clause="Annexure-2 Section 2.11.ii (Page 84) & Format 3 Clause xvi (Page 205)",
+        aph_annexure="Section 2.11.ii & Format 3 Clause xvi (Pages 84, 205)",
+        required_document_types=["resolution", "format_3", "trust_resolution"],
+        is_common_check=False,
+        evidence_requirements=(
+            "Trust/Society/Company Resolution in Format 3 Clause xvi, signed by Chairperson/Secretary, "
+            "approving the change of affiliating University/Board from the present University/Board to the new "
+            "University/Board, with explicit undertaking to apply for NOC to both Universities."
+        ),
+        human_review_conditions=(
+            "Confirmation that resolution specifically authorises affiliation change and undertaking for "
+            "both NOCs. Chairman and Secretary signatures must be verified."
+        ),
+        evaluation_function=check_affiliating_university_resolution_format3,
+    ),
+    "AFFIL-PROPOSED-CONSENT": RuleDefinition(
+        rule_id="AFFIL-PROPOSED-CONSENT",
+        rule_name="Affiliation Consent / In-Principle NOC from Proposed University",
+        applicable_application_types=["change_of_affiliating_university"],
+        aph_chapter="Annexure-2",
+        aph_clause="Format 3 Clause xvi (Page 205) & Annexure-2 Section 2.11",
+        aph_annexure="Section 2.11 & Format 3 Clause xvi (Pages 84, 205)",
+        required_document_types=["proposed_university_consent", "proposed_university_noc", "proposed_consent", "affiliation_consent"],
+        is_common_check=False,
+        evidence_requirements=(
+            "In-principle NOC or Affiliation Consent letter from the proposed University/Board consenting "
+            "to affiliate the applicant institution upon approval."
+        ),
+        human_review_conditions="Confirmation of registrar seal and signature on the proposed affiliation consent letter.",
+        evaluation_function=check_affiliating_university_proposed_consent,
+    ),
+
     "OTHER-HUMAN-SCRUTINY": RuleDefinition(
         rule_id="OTHER-HUMAN-SCRUTINY",
         rule_name="Case-by-Case Scrutiny for Special Statutory Petition",

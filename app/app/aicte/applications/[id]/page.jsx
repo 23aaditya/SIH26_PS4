@@ -157,6 +157,595 @@ const KNOWN_OFFICERS = {
   },
 };
 
+
+function AgentDeficiencyProposalCard({
+  action,
+  onApprove,
+  onOpenReject,
+  actionProcessing,
+  officerNotes,
+  setOfficerNotes,
+  currentVersionHash,
+}) {
+  if (!action) return null;
+  const actionType = action.action_type || "PROPOSE_DEFICIENCY_NOTICE";
+  const isDeficiencyNotice = actionType === "PROPOSE_DEFICIENCY_NOTICE";
+  const isStageAdvancement = actionType === "PROPOSE_FORWARD_TO_NEXT_STAGE";
+  const isHumanReview = actionType === "REQUEST_HUMAN_REVIEW";
+
+  const isWaiting = action.status === "WAITING_FOR_APPROVAL";
+  const isExecuted = action.status === "EXECUTED";
+  const isRejected = action.status === "REJECTED";
+  const isFailed = action.status === "FAILED" || action.status === "PARTIAL_FAILURE";
+
+  const draft = action.input_payload?.draft_notice || {};
+  const transitionProposal = action.input_payload?.transition_proposal || {};
+  const reviewRequest = action.input_payload?.review_request || {};
+
+  const items = isDeficiencyNotice
+    ? (draft.items || action.input_payload?.deficiency_items || [])
+    : isStageAdvancement
+    ? (transitionProposal.verified_items || [])
+    : (reviewRequest.flagged_items || []);
+
+  const recipient = draft.recipient_institution || transitionProposal.applicant_institution || reviewRequest.applicant_institution || action.input_payload?.institution_name || "Applicant Institution";
+  const dueDays = draft.suggested_due_days || action.input_payload?.suggested_due_days || 10;
+
+  // Stale detection: proposal was generated from a different dossier version (relevant when awaiting approval)
+  const proposalHash = action.input_payload?.version_hash;
+  const isStale = isWaiting && !!(currentVersionHash && proposalHash && currentVersionHash !== proposalHash);
+
+  // Helper to detect if finding was triggered by placeholder or stub
+  const isPlaceholderItem = (item) => {
+    const ev = (item.evidence || "").toLowerCase();
+    return ev.includes("placeholder") || ev.includes("verification stub") || ev.includes("verification copy");
+  };
+
+  const renderCardTitle = () => {
+    if (isStageAdvancement) return "Autonomous Agent Proposed Stage Advancement";
+    if (isHumanReview) return "Autonomous Agent Advisory: Manual Human Review Required";
+    return "Autonomous Agent Proposed Deficiency Notice";
+  };
+
+  const renderStatusBadge = () => {
+    if (isStale) {
+      return (
+        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-orange-100 text-orange-800 border-orange-300 animate-pulse">
+          ⚠ Stale Proposal — Requires Re-Evaluation
+        </span>
+      );
+    }
+    if (isWaiting) {
+      const label = isStageAdvancement
+        ? "Action Required: Stage Progression Authorization"
+        : isHumanReview
+        ? "Action Required: Manual Officer Inspection"
+        : "Action Required: Waiting for Human Officer Authorization";
+      const color = isStageAdvancement
+        ? "bg-emerald-100 text-emerald-800 border-emerald-300"
+        : isHumanReview
+        ? "bg-blue-100 text-blue-800 border-blue-300"
+        : "bg-amber-100 text-amber-800 border-amber-300";
+      return (
+        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${color} animate-pulse`}>
+          {label}
+        </span>
+      );
+    }
+    if (isExecuted) {
+      const label = isStageAdvancement
+        ? "✓ EXECUTED — Stage Transition Approved"
+        : isHumanReview
+        ? "✓ EXECUTED — Human Review Acknowledged"
+        : "✓ EXECUTED — Official Notice Issued";
+      return (
+        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-emerald-100 text-emerald-800 border-emerald-300">
+          {label}
+        </span>
+      );
+    }
+    if (isRejected) {
+      return (
+        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-red-100 text-red-800 border-red-300">
+          ✕ DECLINED BY OFFICER
+        </span>
+      );
+    }
+    if (isFailed) {
+      return (
+        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-red-100 text-red-800 border-red-300">
+          ⚠ TOOL EXECUTION FAILED
+        </span>
+      );
+    }
+    return (
+      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-slate-100 text-slate-700 border-slate-300">
+        Status: {action.status}
+      </span>
+    );
+  };
+
+  return (
+    <Card className={`border shadow-sm mb-4 transition ${
+      isStale
+        ? "border-orange-400 bg-gradient-to-b from-orange-50/60 to-white"
+        : isWaiting
+        ? (isStageAdvancement
+            ? "border-emerald-300 bg-gradient-to-b from-emerald-50/40 to-white"
+            : isHumanReview
+            ? "border-blue-300 bg-gradient-to-b from-blue-50/40 to-white"
+            : "border-amber-300 bg-gradient-to-b from-amber-50/50 to-white")
+        : isExecuted
+        ? "border-emerald-300 bg-gradient-to-b from-emerald-50/30 to-white"
+        : isRejected
+        ? "border-slate-300 bg-slate-50/40"
+        : isFailed
+        ? "border-red-300 bg-red-50/30"
+        : "border-slate-300 bg-slate-50/40"
+    }`}>
+      <CardHeader className={`p-4 border-b flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+        isExecuted ? "border-emerald-200/70" : isRejected ? "border-slate-200" : isFailed ? "border-red-200" : (isStageAdvancement ? "border-emerald-200/60" : isHumanReview ? "border-blue-200/60" : "border-amber-200/60")
+      }`}>
+        <div className="flex items-start gap-3">
+          <div className={`p-2 rounded-lg shrink-0 ${
+            isStale
+              ? "bg-orange-100 text-orange-800"
+              : isWaiting
+              ? (isStageAdvancement ? "bg-emerald-100 text-emerald-800" : isHumanReview ? "bg-blue-100 text-blue-800" : "bg-amber-100 text-amber-800")
+              : isExecuted
+              ? "bg-emerald-100 text-emerald-800"
+              : isRejected
+              ? "bg-slate-100 text-slate-700"
+              : "bg-red-100 text-red-800"
+          }`}>
+            {isStageAdvancement ? (
+              <CheckCircle2 className="h-5 w-5" />
+            ) : isHumanReview ? (
+              <Search className="h-5 w-5" />
+            ) : (
+              <Bot className="h-5 w-5" />
+            )}
+          </div>
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <CardTitle className="text-sm font-bold text-slate-900">
+                {renderCardTitle()}
+              </CardTitle>
+              {renderStatusBadge()}
+            </div>
+            <CardDescription className="text-xs text-slate-600 mt-1">
+              {action.rationale || "AI Lifecycle Agent statutory evaluation per AICTE APH 2024-2027."}
+            </CardDescription>
+          </div>
+        </div>
+        <div className="text-right text-[11px] font-mono text-slate-500 shrink-0">
+          <div>Action ID: <span className="font-semibold text-slate-700">{action.action_id}</span></div>
+          {proposalHash && (
+            <div>Proposal Hash: <span className={isStale ? "text-orange-600 font-bold" : "text-slate-600"}>{proposalHash.slice(0, 10)}...</span></div>
+          )}
+          {currentVersionHash && (
+            <div>Current Hash: <span className="text-slate-600">{currentVersionHash.slice(0, 10)}...</span></div>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="p-4 space-y-4 text-xs">
+        {/* Stale Proposal Warning Banner (only if waiting for approval and hash changed) */}
+        {isStale && (
+          <div className="p-3 bg-orange-100/80 rounded-lg border border-orange-300 text-[11px] text-orange-950 flex items-start gap-2">
+            <AlertTriangle className="h-4 w-4 text-orange-700 shrink-0 mt-0.5" />
+            <div>
+              <strong>Stale Proposal — Re-Evaluation Required:</strong> This proposal was generated
+              from an earlier version of the application dossier (hash mismatch). The application documents
+              or category may have changed since this proposal was created. Do not approve this proposal
+              without triggering a fresh scrutiny run to generate an up-to-date proposal from the
+              current dossier version.
+            </div>
+          </div>
+        )}
+
+        {/* ─── CASE 1: PROPOSE_DEFICIENCY_NOTICE ─────────────────────────────── */}
+        {isDeficiencyNotice && (
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 bg-white rounded-lg border border-slate-200">
+              <div>
+                <span className="text-slate-500 block text-[10px] font-medium uppercase tracking-wider">Intended Recipient</span>
+                <span className="font-bold text-slate-900 mt-0.5 block">{recipient}</span>
+                {(draft.recipient_institution_id || action.input_payload?.institution_id) && (
+                  <span className="text-[10px] text-slate-500 font-mono">ID: {draft.recipient_institution_id || action.input_payload?.institution_id}</span>
+                )}
+              </div>
+              <div>
+                <span className="text-slate-500 block text-[10px] font-medium uppercase tracking-wider">Statutory Authority</span>
+                <span className="font-semibold text-slate-800 mt-0.5 block">{draft.statutory_authority || "AICTE Approval Process Handbook (APH 2024-2027)"}</span>
+              </div>
+              <div>
+                <span className="text-slate-500 block text-[10px] font-medium uppercase tracking-wider">Response Window</span>
+                <span className="font-bold text-amber-900 mt-0.5 block">{dueDays} Calendar Days</span>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2 text-[10px] font-medium">
+              <span className="px-2 py-0.5 bg-amber-50 text-amber-800 border border-amber-200 rounded">
+                ⚖ Deterministic Statutory — in formal notice
+              </span>
+              <span className="px-2 py-0.5 bg-orange-50 text-orange-800 border border-orange-200 rounded">
+                ⚠ Placeholder / Unsubstantive Document Detected
+              </span>
+              <span className="px-2 py-0.5 bg-slate-50 text-slate-600 border border-slate-200 rounded italic">
+                ℹ Groq Advisory Observations are shown in the AI Scrutiny tab — NOT in this formal notice
+              </span>
+            </div>
+
+            <div className="space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
+                  <AlertTriangle className="h-4 w-4 text-amber-600" />
+                  Proposed Deficiency Items — Deterministic Statutory ({items.length})
+                </span>
+                <span className="text-[10px] text-slate-500">Requires institutional rectification before approval</span>
+              </div>
+
+              {items.length === 0 && (
+                <div className="p-3 bg-slate-50 rounded border border-slate-200 text-slate-500 italic">
+                  No deterministic statutory deficiency items in this proposal.
+                </div>
+              )}
+
+              <div className="space-y-2">
+                {items.map((item, idx) => {
+                  const isPlaceholder = isPlaceholderItem(item);
+                  return (
+                    <div key={idx} className={`p-3 bg-white rounded-lg border shadow-2xs space-y-1.5 ${isPlaceholder ? "border-orange-300 bg-orange-50/20" : "border-amber-200"}`}>
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-bold text-slate-900">{idx + 1}. {item.rule_name || item.rule_id}</span>
+                          <span className="text-[10px] font-mono bg-amber-50 text-amber-800 px-1.5 py-0.5 rounded border border-amber-200">
+                            {item.aph_clause}
+                          </span>
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-200">
+                            ⚖ STATUTORY DEFICIENCY
+                          </span>
+                          {isPlaceholder && (
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-orange-100 text-orange-900 border border-orange-300">
+                              ⚠ PLACEHOLDER DOCUMENT
+                            </span>
+                          )}
+                        </div>
+                        {(item.source_document || item.document_name) && (
+                          <span className="text-[10px] font-mono bg-blue-50 text-blue-800 px-2 py-0.5 rounded border border-blue-200">
+                            Doc: {item.source_document || item.document_name}
+                            {item.source_page || item.page_number ? ` (p. ${item.source_page || item.page_number})` : ""}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[11px] text-slate-700">
+                        <span className="font-semibold text-slate-800">Observed Defect: </span>
+                        {item.evidence}
+                      </div>
+                      <div className="text-[11px] text-emerald-800 bg-emerald-50/70 p-2 rounded border border-emerald-200/80">
+                        <span className="font-bold text-emerald-950">Requested Corrective Action: </span>
+                        {item.corrective_action || item.recommendation}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="p-2.5 bg-slate-50 rounded border border-slate-200 text-[11px] text-slate-700 flex items-start gap-2">
+              <Eye className="h-4 w-4 text-slate-500 shrink-0 mt-0.5" />
+              <div>
+                <strong>Groq LLM Advisory Observations</strong> (if any) are shown separately in the
+                &ldquo;AI Scrutiny&rdquo; tab under &ldquo;Groq LLM Qualitative Scrutiny&rdquo;.
+                Advisory observations are <em>not</em> included in this formal deficiency notice
+                unless a deterministic statutory rule independently establishes the same deficiency.
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* ─── CASE 2: PROPOSE_FORWARD_TO_NEXT_STAGE ───────────────────────── */}
+        {isStageAdvancement && (
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 bg-white rounded-lg border border-slate-200">
+              <div>
+                <span className="text-slate-500 block text-[10px] font-medium uppercase tracking-wider">Applicant Institution</span>
+                <span className="font-bold text-slate-900 mt-0.5 block">{recipient}</span>
+              </div>
+              <div>
+                <span className="text-slate-500 block text-[10px] font-medium uppercase tracking-wider">Recommended Next Stage</span>
+                <span className="font-bold text-emerald-800 mt-0.5 block">
+                  {transitionProposal.recommended_stage_name || "Standing Hearing / Decision"}
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-500 block text-[10px] font-medium uppercase tracking-wider">Statutory Pre-Check</span>
+                <span className="font-bold text-emerald-700 mt-0.5 block flex items-center gap-1">
+                  <CheckCircle2 className="h-3.5 w-3.5" /> All Norms Satisfied
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                  Verified Statutory Requirements ({items.length})
+                </span>
+                <span className="text-[10px] text-slate-500">All applicable norms compliant per APH 2024-2027</span>
+              </div>
+
+              <div className="space-y-2">
+                {items.map((item, idx) => (
+                  <div key={idx} className="p-3 bg-white rounded-lg border border-emerald-200 shadow-2xs space-y-1">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-slate-900">{idx + 1}. {item.rule_name || item.rule_id}</span>
+                        {item.aph_clause && (
+                          <span className="text-[10px] font-mono bg-emerald-50 text-emerald-800 px-1.5 py-0.5 rounded border border-emerald-200">
+                            {item.aph_clause}
+                          </span>
+                        )}
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-900 border border-emerald-200">
+                          ✓ COMPLIANT
+                        </span>
+                      </div>
+                    </div>
+                    {item.evidence && (
+                      <div className="text-[11px] text-slate-600">
+                        <span className="font-semibold text-slate-700">Verification Finding: </span>
+                        {item.evidence}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* ─── CASE 3: REQUEST_HUMAN_REVIEW ─────────────────────────────────── */}
+        {isHumanReview && (
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 bg-white rounded-lg border border-slate-200">
+              <div>
+                <span className="text-slate-500 block text-[10px] font-medium uppercase tracking-wider">Applicant Institution</span>
+                <span className="font-bold text-slate-900 mt-0.5 block">{recipient}</span>
+              </div>
+              <div>
+                <span className="text-slate-500 block text-[10px] font-medium uppercase tracking-wider">Assessment Status</span>
+                <span className="font-bold text-blue-800 mt-0.5 block">Manual Officer Inspection Required</span>
+              </div>
+              <div>
+                <span className="text-slate-500 block text-[10px] font-medium uppercase tracking-wider">Items Flagged</span>
+                <span className="font-bold text-blue-900 mt-0.5 block">{items.length} Checklist Item(s)</span>
+              </div>
+            </div>
+
+            <div className="space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
+                  <Search className="h-4 w-4 text-blue-600" />
+                  Checks Requiring Human Officer Determination ({items.length})
+                </span>
+                <span className="text-[10px] text-slate-500">Requires manual scrutiny before final disposition</span>
+              </div>
+
+              <div className="space-y-2">
+                {items.map((item, idx) => (
+                  <div key={idx} className="p-3 bg-white rounded-lg border border-blue-200 shadow-2xs space-y-1">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-slate-900">{idx + 1}. {item.rule_name || item.rule_id}</span>
+                        {item.aph_clause && (
+                          <span className="text-[10px] font-mono bg-blue-50 text-blue-800 px-1.5 py-0.5 rounded border border-blue-200">
+                            {item.aph_clause}
+                          </span>
+                        )}
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-900 border border-blue-200">
+                          🔍 {item.status || "NEEDS_HUMAN_REVIEW"}
+                        </span>
+                      </div>
+                    </div>
+                    {item.evidence && (
+                      <div className="text-[11px] text-slate-700">
+                        <span className="font-semibold text-slate-800">Observation: </span>
+                        {item.evidence}
+                      </div>
+                    )}
+                    {item.recommendation && (
+                      <div className="text-[11px] text-blue-900 bg-blue-50/70 p-2 rounded border border-blue-200/80">
+                        <span className="font-bold text-blue-950">Recommended Action: </span>
+                        {item.recommendation}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Human Authority Protection Notice (ONLY when WAITING_FOR_APPROVAL) */}
+        {isWaiting && (
+          <div className="p-2.5 bg-amber-100/60 rounded border border-amber-300/80 text-[11px] text-amber-950 flex items-start gap-2">
+            <ShieldCheck className="h-4 w-4 text-amber-700 shrink-0 mt-0.5" />
+            <div>
+              <strong>Human Authority Protection:</strong> This proposed action is purely an AI assistant recommendation and has not taken official legal effect. Only an authorized human AICTE Scrutiny Officer can review and approve it.
+            </div>
+          </div>
+        )}
+
+        {/* Interactive Officer Controls (When WAITING_FOR_APPROVAL) */}
+        {isWaiting && (
+          <div className="pt-2 border-t border-slate-200 space-y-3">
+            <div>
+              <Label className="text-xs font-semibold text-slate-800">
+                Optional Officer Remarks / Justification
+              </Label>
+              <Textarea
+                rows={2}
+                value={officerNotes}
+                onChange={(e) => setOfficerNotes(e.target.value)}
+                placeholder="Add specific officer remarks or conditions..."
+                className="text-xs mt-1 bg-white"
+                disabled={actionProcessing}
+              />
+            </div>
+            <div className="flex items-center justify-end gap-2.5">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => onOpenReject(action.action_id)}
+                disabled={actionProcessing}
+                className="text-xs border-red-200 text-red-700 hover:bg-red-50"
+              >
+                Decline Proposal
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => onApprove(action.action_id)}
+                disabled={actionProcessing || isStale}
+                className={`text-xs text-white font-semibold disabled:opacity-50 ${
+                  isStageAdvancement ? "bg-emerald-600 hover:bg-emerald-700" : isHumanReview ? "bg-blue-600 hover:bg-blue-700" : "bg-amber-600 hover:bg-amber-700"
+                }`}
+              >
+                {actionProcessing ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                    Processing Decision...
+                  </>
+                ) : isStale ? (
+                  <>
+                    <AlertTriangle className="h-3.5 w-3.5 mr-1.5" />
+                    Stale — Run Fresh Scrutiny First
+                  </>
+                ) : isStageAdvancement ? (
+                  <>
+                    <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
+                    Authorize & Advance Stage
+                  </>
+                ) : isHumanReview ? (
+                  <>
+                    <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
+                    Acknowledge & Record Review
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
+                    Authorize & Officially Issue Notice
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Historical Audit Record if EXECUTED */}
+        {isExecuted && (
+          <div className="space-y-3 pt-1">
+            <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-300 text-xs text-emerald-950 space-y-2.5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-emerald-200/80 pb-2">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-700 shrink-0" />
+                  <span className="font-bold text-emerald-900">
+                    Formally Authorized & Processed by Scrutiny Officer
+                  </span>
+                </div>
+                <span className="text-[11px] font-semibold text-emerald-800">
+                  {action.approved_at || action.updated_at
+                    ? new Date(action.approved_at || action.updated_at).toLocaleString()
+                    : "Authorized"}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-[11px]">
+                <div className="bg-white/80 p-2 rounded border border-emerald-200">
+                  <span className="text-slate-500 block text-[10px] font-medium uppercase">Authorized Officer</span>
+                  <span className="font-bold text-slate-800">
+                    {action.approved_by || action.output_payload?.approved_by || "DEMO-AIC-034"}
+                  </span>
+                </div>
+                <div className="bg-white/80 p-2 rounded border border-emerald-200">
+                  <span className="text-slate-500 block text-[10px] font-medium uppercase">Action Type</span>
+                  <span className="font-mono font-semibold text-slate-800 truncate block">
+                    {action.action_type}
+                  </span>
+                </div>
+                <div className="bg-white/80 p-2 rounded border border-emerald-200">
+                  <span className="text-slate-500 block text-[10px] font-medium uppercase">Execution Status</span>
+                  <span className="font-bold text-emerald-800">
+                    EXECUTED
+                  </span>
+                </div>
+              </div>
+
+              {(action.output_payload?.approval_notes || action.approval_notes) && (
+                <div className="bg-white/80 p-2 rounded border border-emerald-200 text-[11px]">
+                  <span className="text-slate-500 font-medium block text-[10px] uppercase">Officer Remarks / Instructions</span>
+                  <p className="text-slate-800 italic mt-0.5">
+                    &ldquo;{action.output_payload?.approval_notes || action.approval_notes}&rdquo;
+                  </p>
+                </div>
+              )}
+
+              {isDeficiencyNotice && (
+                <div className="text-[10px] text-emerald-800/90 pt-1 flex items-center justify-between flex-wrap gap-2">
+                  <span>Official Notice Status: <strong className="font-semibold text-emerald-950 uppercase">{action.deficiency_status || "PENDING RESPONSE"}</strong></span>
+                  {action.deficiency_due_at && (
+                    <span>Response Due By: <strong className="font-semibold text-emerald-950">{new Date(action.deficiency_due_at).toLocaleDateString()}</strong></span>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="p-2.5 bg-slate-50 rounded border border-slate-200 text-[11px] text-slate-700">
+              <strong>Historical Audit Record:</strong> This action has been formally authorized and executed under officer authority. In accordance with AICTE regulatory compliance governance, this record is permanently preserved in the audit trail.
+            </div>
+          </div>
+        )}
+
+        {/* Audit Record if REJECTED */}
+        {isRejected && (
+          <div className="space-y-2 pt-1">
+            <div className="p-3 bg-red-50/70 rounded-lg border border-red-300 text-xs text-red-950 space-y-2">
+              <div className="flex items-center justify-between border-b border-red-200 pb-1.5">
+                <span className="font-bold text-red-900 flex items-center gap-1.5">
+                  ✕ Proposal Declined by Officer
+                </span>
+                <span className="text-[11px] text-red-700">
+                  {action.updated_at ? new Date(action.updated_at).toLocaleString() : ""}
+                </span>
+              </div>
+              <div className="text-[11px] text-slate-800">
+                <span className="font-semibold text-slate-900">Rejecting Officer: </span>
+                {action.output_payload?.rejected_by || action.rejected_by || "AICTE Scrutiny Officer"}
+              </div>
+              <div className="text-[11px] text-red-900 bg-white/80 p-2 rounded border border-red-200">
+                <span className="font-bold text-red-950">Recorded Rejection Reason: </span>
+                &ldquo;{action.rejection_reason || "Officer determined proposal was not applicable or acceptable physical documentation was verified."}&rdquo;
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Audit Record if FAILED / PARTIAL_FAILURE */}
+        {isFailed && (
+          <div className="p-3 bg-red-50 rounded-lg border border-red-300 text-xs text-red-950 space-y-1.5">
+            <div className="font-bold text-red-900 flex items-center gap-1.5">
+              <AlertTriangle className="h-4 w-4 text-red-600" />
+              Agent Tool Execution Failed
+            </div>
+            <p className="text-[11px] text-slate-700">
+              {action.error_message || "The agent encountered an unrecoverable error during action execution."}
+            </p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function getWorkingOfficer(app, userProfile) {
   if (!app) return null;
   // 1. Check active stage in workflowInstance
@@ -321,6 +910,12 @@ function CaseReviewContent() {
     const [selectedRole, setSelectedRole] = useState("scrutiny_committee");
     const [submittingAdvance, setSubmittingAdvance] = useState(false);
     const [notificationBanner, setNotificationBanner] = useState(null);
+    const [agentActions, setAgentActions] = useState([]);
+    const [actionProcessing, setActionProcessing] = useState(false);
+    const [officerActionNotes, setOfficerActionNotes] = useState("");
+    const [showRejectModal, setShowRejectModal] = useState(false);
+    const [rejectReason, setRejectReason] = useState("");
+    const [selectedActionId, setSelectedActionId] = useState(null);
     const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api";
 
     const reloadData = async () => {
@@ -358,6 +953,24 @@ function CaseReviewContent() {
             }
         } catch (re) {
             console.warn("Could not fetch reports:", re);
+        }
+
+        // Fetch Agent Actions (Lifecycle Agent Proposals & States)
+        try {
+            const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+            const actRes = await fetch(`${API_BASE}/agent/applications/${id}/actions`, {
+                headers: {
+                    "x-user-id": userProfile?.uid || userProfile?.email || "DEMO-AIC-034",
+                    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                },
+                credentials: "include",
+            });
+            if (actRes.ok) {
+                const actData = await actRes.json();
+                setAgentActions(Array.isArray(actData) ? actData : []);
+            }
+        } catch (ae) {
+            console.warn("Could not fetch agent actions:", ae);
         }
 
         const found = dataService.getApplicationById(id);
@@ -518,6 +1131,21 @@ function CaseReviewContent() {
     } catch (e) {}
   }
 
+  // Active deficiency guard: Application is currently awaiting institutional response
+  const pendingDefFromApp = (app?.deficiencies || app?.deficiencyRequests || []).find((d) => d.status === "pending");
+  const isDeficiencyActive = Boolean(
+    app?.hasActiveDeficiency ||
+    app?.status === "awaiting_institution" ||
+    app?.currentStageId === "clarification" ||
+    pendingDefFromApp ||
+    agentActions?.some((a) => a.status === "EXECUTED" && a.action_type === "PROPOSE_DEFICIENCY_NOTICE" && a.deficiency_status === "pending")
+  );
+  const activeDeficiency = app?.activeDeficiency || (pendingDefFromApp ? {
+    id: pendingDefFromApp.id,
+    cycleNumber: app?.returnCount || 1,
+    dueAt: pendingDefFromApp.dueAt || app?.dueAt,
+  } : null);
+
   // 0. Action: Authenticated View PDF
   const handleViewPdf = async (doc) => {
     try {
@@ -581,6 +1209,70 @@ function CaseReviewContent() {
         setNotificationBanner("Deficiency letter successfully issued to institution. Status updated to 'Awaiting Institution'.");
         reloadData();
     };
+    const handleApproveAgentAction = async (actionId) => {
+        if (!actionId || actionProcessing) return;
+        setActionProcessing(true);
+        try {
+            const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+            const res = await fetch(`${API_BASE}/agent/applications/${app.id}/actions/${actionId}/approve`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "x-user-id": userProfile?.uid || userProfile?.email || "DEMO-AIC-034",
+                    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                },
+                body: JSON.stringify({ notes: officerActionNotes }),
+                credentials: "include",
+            });
+
+            if (res.ok) {
+                setNotificationBanner("Agent proposed deficiency notice officially authorized and issued to institution.");
+                setOfficerActionNotes("");
+                await reloadData();
+            } else {
+                const err = await res.json().catch(() => ({}));
+                setNotificationBanner(err.error || "Failed to authorize agent proposal.");
+            }
+        } catch (err) {
+            setNotificationBanner(err.message || "Approval request error.");
+        } finally {
+            setActionProcessing(false);
+        }
+    };
+
+    const handleRejectAgentAction = async () => {
+        if (!selectedActionId || !rejectReason.trim() || actionProcessing) return;
+        setActionProcessing(true);
+        try {
+            const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+            const res = await fetch(`${API_BASE}/agent/applications/${app.id}/actions/${selectedActionId}/reject`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "x-user-id": userProfile?.uid || userProfile?.email || "DEMO-AIC-034",
+                    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                },
+                body: JSON.stringify({ reason: rejectReason.trim() }),
+                credentials: "include",
+            });
+
+            if (res.ok) {
+                setNotificationBanner("Agent proposed action declined. No official notice was issued.");
+                setShowRejectModal(false);
+                setRejectReason("");
+                setSelectedActionId(null);
+                await reloadData();
+            } else {
+                const err = await res.json().catch(() => ({}));
+                setNotificationBanner(err.error || "Failed to decline agent action.");
+            }
+        } catch (err) {
+            setNotificationBanner(err.message || "Rejection request error.");
+        } finally {
+            setActionProcessing(false);
+        }
+    };
+
     // 2. Action: Complete Review & Pass Application to Next Level
     const handleAdvanceStage = async () => {
         setSubmittingAdvance(true);
@@ -610,9 +1302,24 @@ function CaseReviewContent() {
                 await reloadData();
                 setSubmittingAdvance(false);
                 return;
+            } else {
+                const errData = await res.json().catch(() => ({}));
+                setShowAdvanceModal(false);
+                setSubmittingAdvance(false);
+                setNotificationBanner({
+                    type: "error",
+                    message: errData.error || `Cannot advance application (HTTP ${res.status}): ${errData.code || "FORWARD_REJECTED"}`,
+                });
+                return;
             }
         } catch (err) {
-            console.warn("Backend forward API error, using fallback:", err);
+            setShowAdvanceModal(false);
+            setSubmittingAdvance(false);
+            setNotificationBanner({
+                type: "error",
+                message: err.message || "Network error while forwarding application.",
+            });
+            return;
         }
 
         // Local dataService fallback
@@ -653,16 +1360,54 @@ function CaseReviewContent() {
         reloadData();
     };
     // 4. Action: Record Final Decision
-    const handleRecordDecision = () => {
+    const handleRecordDecision = async () => {
         const condList = decisionConditions
             .split(";")
             .map((c) => c.trim())
             .filter(Boolean);
+
+        try {
+            const res = await fetch(`${API_BASE}/aicte/applications/${app.id}/decision`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "x-user-id": userProfile?.uid || userProfile?.employeeCode || "DEMO-AIC-034",
+                },
+                credentials: "include",
+                body: JSON.stringify({
+                    decisionType,
+                    outcome: decisionType === "approved" ? "APPROVED" : "REJECTED",
+                    reasonAndFindings: decisionReason || "Final regulatory decision issued per APH norms.",
+                    conditions: condList,
+                }),
+            });
+
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({}));
+                setShowDecisionModal(false);
+                setNotificationBanner({
+                    type: "error",
+                    message: errData.error || `Cannot record decision (HTTP ${res.status}): ${errData.code || "DECISION_REJECTED"}`,
+                });
+                return;
+            }
+        } catch (err) {
+            setShowDecisionModal(false);
+            setNotificationBanner({
+                type: "error",
+                message: err.message || "Network error while recording decision.",
+            });
+            return;
+        }
+
         dataService.recordDecision(app.id, decisionType, decisionReason, condList, { uid: userProfile?.uid || "aicte-authority-1", role: userProfile?.role || "competent_authority" });
         setShowDecisionModal(false);
-        setNotificationBanner(decisionType === "approved"
-            ? "Official AICTE Approval Order issued with conditions."
-            : "Application officially rejected.");
+        setNotificationBanner({
+            type: "success",
+            message: decisionType === "approved"
+                ? "Official AICTE Approval Order issued with conditions."
+                : "Application officially rejected.",
+        });
         reloadData();
     };
     // 5. Action: Reassign
@@ -731,28 +1476,73 @@ function CaseReviewContent() {
             <UserCheck className="h-3.5 w-3.5 mr-1"/> Reassign
           </Button>
 
-          <Button variant="outline" size="sm" onClick={() => setShowClarifyModal(true)} className="text-xs text-amber-800 border-amber-300 hover:bg-amber-50">
-            <RotateCcw className="h-3.5 w-3.5 mr-1 text-amber-600"/> Return for Clarification
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowClarifyModal(true)}
+            disabled={isDeficiencyActive}
+            title={isDeficiencyActive ? `Active deficiency notice pending response (Cycle #${app.returnCount || 1})` : "Return application for institutional clarification"}
+            className="text-xs text-amber-800 border-amber-300 hover:bg-amber-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <RotateCcw className="h-3.5 w-3.5 mr-1 text-amber-600"/>
+            {isDeficiencyActive ? `Deficiency Notice Active (Cycle #${app.returnCount || 1})` : "Return for Clarification"}
           </Button>
 
-          {app.requiresEvc && (<Button variant="outline" size="sm" onClick={() => setShowEvcModal(true)} className="text-xs text-purple-800 border-purple-300 hover:bg-purple-50">
+          {app.requiresEvc && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowEvcModal(true)}
+              disabled={isDeficiencyActive}
+              title={isDeficiencyActive ? `EVC inspection locked: Official deficiency notice (Cycle #${app.returnCount || 1}) is awaiting institutional response.` : "Schedule Expert Visiting Committee"}
+              className="text-xs text-purple-800 border-purple-300 hover:bg-purple-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
               <Calendar className="h-3.5 w-3.5 mr-1 text-purple-600"/> Schedule EVC
-            </Button>)}
+            </Button>
+          )}
 
           <Button
             size="sm"
             onClick={() => setShowAdvanceModal(true)}
-            className="text-xs bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-xs flex items-center gap-1.5"
+            disabled={isDeficiencyActive}
+            title={isDeficiencyActive ? `Forwarding locked: Official deficiency notice (Cycle #${app.returnCount || 1}) is awaiting institutional response.` : "Pass application to next regulatory level"}
+            className="text-xs bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-xs flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <ArrowRightCircle className="h-3.5 w-3.5 text-blue-100" />
             Send to Next Level ({nextLevel.stageName.split(" ")[0]}...)
           </Button>
 
-          <Button size="sm" onClick={() => setShowDecisionModal(true)} className="text-xs bg-slate-900 hover:bg-slate-800 text-white font-semibold shadow-xs">
+          <Button
+            size="sm"
+            onClick={() => setShowDecisionModal(true)}
+            disabled={isDeficiencyActive}
+            title={isDeficiencyActive ? `Final decision locked: Official deficiency notice (Cycle #${app.returnCount || 1}) is awaiting institutional response.` : "Record final regulatory decision"}
+            className="text-xs bg-slate-900 hover:bg-slate-800 text-white font-semibold shadow-xs disabled:opacity-50 disabled:cursor-not-allowed"
+          >
             <ShieldCheck className="h-3.5 w-3.5 mr-1 text-emerald-400"/> Record Final Decision
           </Button>
         </div>
       </div>
+
+      {/* Active Deficiency Notice Lock Banner */}
+      {isDeficiencyActive && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50/90 p-3 text-xs text-amber-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+          <div className="flex items-start sm:items-center gap-2.5">
+            <AlertTriangle className="h-4 w-4 text-amber-700 shrink-0 mt-0.5 sm:mt-0" />
+            <div>
+              <span className="font-bold">Active Deficiency Notice (Cycle #{app.returnCount || activeDeficiency?.cycleNumber || 1}) — Forward Workflow Actions Locked:</span>
+              <span className="ml-1 text-slate-700">
+                Official statutory deficiency notice was dispatched to {institution?.institutionName || "the applicant institution"}. Passing to next regulatory level and recording final decisions are locked until institutional clarification is submitted and scrutiny review is completed.
+              </span>
+            </div>
+          </div>
+          {(app.dueAt || activeDeficiency?.dueAt) && (
+            <div className="text-[11px] font-mono text-amber-900 shrink-0 bg-amber-100 px-2.5 py-1 rounded border border-amber-300 font-semibold self-start sm:self-auto">
+              Response Due: {new Date(Number(app.dueAt || activeDeficiency?.dueAt) || (app.dueAt || activeDeficiency?.dueAt)).toLocaleDateString()}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Notification Toast Banner */}
       {notificationBanner && (
@@ -887,7 +1677,12 @@ function CaseReviewContent() {
                   ? "bg-emerald-100 text-emerald-800 border-emerald-300"
                   : "bg-red-100 text-red-800 border-red-300",
               },
-              { id: "deficiency", label: `Observations & Deficiencies (${app.returnCount || 0})` },
+              {
+                id: "deficiency",
+                label: `Observations & Deficiencies (${app.returnCount || 0})`,
+                badgeText: agentActions.some(a => a.status === "WAITING_FOR_APPROVAL") ? "Action Required" : null,
+                badgeColor: "bg-amber-100 text-amber-800 border-amber-300 animate-pulse",
+              },
               { id: "evc", label: "EVC Inspection" },
               { id: "audit", label: `Audit Log (${auditEvents.length})` },
             ].map((tab) => (
@@ -1104,6 +1899,24 @@ function CaseReviewContent() {
                     </div>
                   ) : aiReport && (
                     <>
+                      {/* Autonomous Agent Proposed Deficiency Notice (waiting approval or historical executed/rejected record) */}
+                      {agentActions && agentActions.length > 0 && (
+                        <AgentDeficiencyProposalCard
+                          action={
+                            agentActions.find(a => a.status === "WAITING_FOR_APPROVAL") || agentActions.find(a => a.status === "EXECUTED") || agentActions[0]
+                          }
+                          onApprove={handleApproveAgentAction}
+                          onOpenReject={(actionId) => {
+                            setSelectedActionId(actionId);
+                            setShowRejectModal(true);
+                          }}
+                          actionProcessing={actionProcessing}
+                          officerNotes={officerActionNotes}
+                          setOfficerNotes={setOfficerActionNotes}
+                          currentVersionHash={aiMeta?.versionHash}
+                        />
+                      )}
+
                       {/* Executive Summary Card (Clean, Styled, No Raw Markdown) */}
                       <AiExecutiveSummary
                         content={aiReport.content}
@@ -1310,6 +2123,13 @@ function CaseReviewContent() {
                             <Sparkles className="h-3.5 w-3.5 text-indigo-600" />
                             Groq LLM Qualitative & Contextual Scrutiny
                           </h4>
+                        {/* Advisory Only Disclaimer Pill */}
+                        <div className="mb-2.5 p-2 bg-purple-50/70 rounded border border-purple-200 text-[11px] text-purple-900 flex items-center gap-1.5">
+                          <Eye className="h-3.5 w-3.5 text-purple-600 shrink-0" />
+                          <span>
+                            <strong>Advisory Only — Not in Formal Deficiency Notice:</strong> Qualitative LLM observations highlight context and evidence gaps for human committee consideration; they are strictly excluded from the official statutory deficiency notice unless backed by an established deterministic APH rule.
+                          </span>
+                        </div>
                           <div className="flex items-center gap-2">
                             <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${
                               aiMeta?.llmAnalysis?.status === "SUCCESS"
@@ -1459,6 +2279,24 @@ function CaseReviewContent() {
 
           {/* Tab 3: Observations & Deficiencies */}
           {activeTab === "deficiency" && (
+            <div className="space-y-4">
+              {agentActions && agentActions.length > 0 && (
+                <AgentDeficiencyProposalCard
+                  action={
+                    agentActions.find(a => a.status === "WAITING_FOR_APPROVAL") || agentActions.find(a => a.status === "EXECUTED") || agentActions[0]
+                  }
+                  onApprove={handleApproveAgentAction}
+                  onOpenReject={(actionId) => {
+                    setSelectedActionId(actionId);
+                    setShowRejectModal(true);
+                  }}
+                  actionProcessing={actionProcessing}
+                  officerNotes={officerActionNotes}
+                  setOfficerNotes={setOfficerActionNotes}
+                  currentVersionHash={aiMeta?.versionHash}
+                />
+              )}
+
 <Card className="border border-slate-200/90 shadow-2xs bg-white">
               <CardHeader className="p-4 border-b border-slate-100 flex flex-row items-center justify-between">
                 <div>
@@ -1469,8 +2307,15 @@ function CaseReviewContent() {
                     Official queries issued to institution and corresponding rejoinders
                   </CardDescription>
                 </div>
-                <Button size="sm" onClick={() => setShowClarifyModal(true)} className="h-7 text-xs bg-amber-600 hover:bg-amber-700 text-white">
-                  <RotateCcw className="h-3 w-3 mr-1"/> Issue Deficiency Letter
+                <Button
+                  size="sm"
+                  onClick={() => setShowClarifyModal(true)}
+                  disabled={isDeficiencyActive}
+                  title={isDeficiencyActive ? `Deficiency Notice Active (Cycle #${app.returnCount || 1}). Institution must respond before new queries can be issued.` : "Issue Deficiency Letter"}
+                  className="h-7 text-xs bg-amber-600 hover:bg-amber-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <RotateCcw className="h-3 w-3 mr-1"/>
+                  {isDeficiencyActive ? `Deficiency Active (Cycle #${app.returnCount || 1})` : "Issue Deficiency Letter"}
                 </Button>
               </CardHeader>
               <CardContent className="p-4 space-y-3 text-xs">
@@ -1490,7 +2335,8 @@ function CaseReviewContent() {
                     </p>
                   </div>)}
               </CardContent>
-            </Card>)}
+            </Card>
+            </div>)}
 
           {/* Tab 4: EVC Inspection */}
           {activeTab === "evc" && (<Card className="border border-slate-200/90 shadow-2xs bg-white">
@@ -1803,6 +2649,48 @@ function CaseReviewContent() {
             </Button>
             <Button size="sm" onClick={handleScheduleEvc} className="bg-purple-700 text-white">
               Confirm & Dispatch Orders
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+
+      {/* 5. Decline Agent Action Dialog */}
+      <Dialog
+        open={showRejectModal}
+        onOpenChange={setShowRejectModal}
+        title="Decline Autonomous Agent Proposal"
+        description="Provide a formal regulatory reason for declining the agent's proposed action."
+      >
+        <div className="space-y-4 text-xs">
+          <div>
+            <Label className="font-semibold text-slate-800 block mb-1">
+              Officer Justification for Declining (Mandatory)
+            </Label>
+            <Textarea
+              rows={3}
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              placeholder="State why the proposed deficiency is not being issued (e.g., institution granted extension, manual document verification satisfied, statutory exemption applies)..."
+              className="text-xs"
+            />
+          </div>
+          <div className="rounded-md bg-slate-50 p-3 border border-slate-200 text-slate-700">
+            <p className="font-semibold text-slate-900">Audited Record:</p>
+            <p className="mt-0.5">
+              Declining will record your rationale in the regulatory audit trail. No deficiency notice will be dispatched, and the application status remains unchanged.
+            </p>
+          </div>
+          <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+            <Button variant="ghost" size="sm" onClick={() => setShowRejectModal(false)} disabled={actionProcessing}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              disabled={!rejectReason.trim() || actionProcessing}
+              onClick={handleRejectAgentAction}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              {actionProcessing ? "Declining..." : "Confirm Decline Proposal"}
             </Button>
           </div>
         </div>

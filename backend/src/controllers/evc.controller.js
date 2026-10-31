@@ -1,3 +1,4 @@
+import { workflowEligibilityService } from "../services/workflowEligibility.service.js";
 import prisma from "../db/prisma.js";
 
 export const evcController = {
@@ -30,6 +31,7 @@ export const evcController = {
       }
 
       const { applicationId, scheduledAt, notes, experts, assignedExperts } = req.body;
+      await workflowEligibilityService.assertCanScheduleEvc(applicationId, req.user);
 
       const application = await prisma.application.findUnique({
         where: { id: applicationId },

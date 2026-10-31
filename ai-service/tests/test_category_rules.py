@@ -420,3 +420,448 @@ def test_category_change_changes_evaluated_rules():
     assert "TWIN-AFFIDAVIT11" in rules_twin
     assert "TWIN-AFFIDAVIT11" not in rules_eoa
     assert "TWIN-AFFIDAVIT11" not in rules_close
+
+
+# ==============================================================================
+# Phase 4.2 — Change of Affiliating University / Board (APH Section 2.11) Tests
+# ==============================================================================
+
+def test_change_of_affiliating_university_rule_selection():
+    """
+    Phase 4.2: Change of Affiliating University/Board must select Section 2.11 rules:
+    - AFFIL-UNIV-NOC-F2 (NOC from affiliating University in Format 2)
+    - AFFIL-RESOLUTION-F3 (Trust/Society Resolution in Format 3, Section 2.11)
+    Must NOT select INTAKE-RESOLUTION-F3 (Section 2.6 — Increase in Intake rule).
+    Must NOT select INTAKE-AFFIDAVIT8 or INTAKE-CORE-BRANCHES (intake-expansion rules).
+    Must NOT select INTAKE-EVC-MANDATE, SITE-ANNEX1-LAND-DOCS, or CLINST-AFFIDAVIT4.
+    """
+    app_data = {"applicationCategory": "Change of Affiliating University / Board"}
+    rules = get_applicable_rules("change_of_affiliating_university", app_data)
+    rule_ids = [r.rule_id for r in rules]
+
+    # Must include the two Section 2.11 rules
+    assert "AFFIL-UNIV-NOC-F2" in rule_ids, "Missing NOC Format 2 rule for affiliation change"
+    assert "AFFIL-RESOLUTION-F3" in rule_ids, "Missing Resolution Format 3 rule for affiliation change"
+
+    # Must NOT include the Section 2.6 Intake/Additional Course resolution rule
+    assert "INTAKE-RESOLUTION-F3" not in rule_ids, (
+        "INTAKE-RESOLUTION-F3 (Section 2.6 — Increase in Intake) must NOT apply to "
+        "Change of Affiliating University/Board"
+    )
+
+    # Must NOT include intake-expansion-specific rules
+    assert "INTAKE-AFFIDAVIT8" not in rule_ids
+    assert "INTAKE-CORE-BRANCHES" not in rule_ids
+    assert "INTAKE-EVC-MANDATE" not in rule_ids
+
+    # Must NOT include site-change or closure rules
+    assert "SITE-ANNEX1-LAND-DOCS" not in rule_ids
+    assert "CLINST-AFFIDAVIT4" not in rule_ids
+    assert "CLINST-SALARY-DUES" not in rule_ids
+
+
+def test_change_of_affiliating_university_uses_section_2_11_citation():
+    """
+    Phase 4.2: Verify both Section 2.11 rules carry the correct APH clause citation.
+    Neither rule must reference Section 2.6 (Intake Expansion).
+    """
+    catalog = RULE_CATALOG
+
+    noc_rule = catalog.get("AFFIL-UNIV-NOC-F2")
+    assert noc_rule is not None, "AFFIL-UNIV-NOC-F2 not found in RULE_CATALOG"
+    assert "2.11" in noc_rule.aph_clause, f"NOC rule must cite Section 2.11, got: {noc_rule.aph_clause}"
+    assert "2.6" not in noc_rule.aph_clause, (
+        f"NOC rule must NOT cite Section 2.6 (Increase in Intake), got: {noc_rule.aph_clause}"
+    )
+
+    res_rule = catalog.get("AFFIL-RESOLUTION-F3")
+    assert res_rule is not None, "AFFIL-RESOLUTION-F3 not found in RULE_CATALOG"
+    assert "2.11" in res_rule.aph_clause, f"Resolution rule must cite Section 2.11, got: {res_rule.aph_clause}"
+    assert "2.6" not in res_rule.aph_clause, (
+        f"Resolution rule must NOT cite Section 2.6 (Increase in Intake), got: {res_rule.aph_clause}"
+    )
+
+
+def test_increase_intake_retains_section_2_6_rules():
+    """
+    Phase 4.2 regression: Fixing affiliation-change rules must not affect Increase in Intake.
+    Increase in Intake must still have its Section 2.6 rules (INTAKE-RESOLUTION-F3, INTAKE-AFFIDAVIT8).
+    """
+    app_data = {"applicationCategory": "Increase in Intake"}
+    rules = get_applicable_rules("increase_intake", app_data)
+    rule_ids = [r.rule_id for r in rules]
+
+    # Section 2.6 rules must remain for Intake
+    assert "INTAKE-RESOLUTION-F3" in rule_ids
+    assert "INTAKE-AFFIDAVIT8" in rule_ids
+    assert "INTAKE-CORE-BRANCHES" in rule_ids
+
+    # Section 2.11 rules must NOT appear for Intake
+    assert "AFFIL-UNIV-NOC-F2" not in rule_ids
+    assert "AFFIL-RESOLUTION-F3" not in rule_ids
+
+    # Verify Section 2.6 citation is preserved on the intake rule
+    intake_res_rule = RULE_CATALOG.get("INTAKE-RESOLUTION-F3")
+    assert "2.6" in intake_res_rule.aph_clause, (
+        f"INTAKE-RESOLUTION-F3 must still cite Section 2.6, got: {intake_res_rule.aph_clause}"
+    )
+
+
+def test_additional_course_retains_section_2_6_rules():
+    """
+    Phase 4.2 regression: Additional Course must retain its Section 2.6 rules unchanged.
+    """
+    app_data = {"applicationCategory": "Additional Course"}
+    rules = get_applicable_rules("additional_course", app_data)
+    rule_ids = [r.rule_id for r in rules]
+
+    assert "INTAKE-RESOLUTION-F3" in rule_ids
+    assert "INTAKE-AFFIDAVIT8" in rule_ids
+    assert "AFFIL-UNIV-NOC-F2" not in rule_ids
+    assert "AFFIL-RESOLUTION-F3" not in rule_ids
+
+
+def test_affiliation_change_deficient_when_no_documents():
+    """
+    Phase 4.2: Change of Affiliating University/Board with no documents must yield DEFICIENT
+    for both Section 2.11 required documents, with correct APH 2.11 citation wording.
+    """
+    app_data = {
+        "id": "app-affil-no-docs",
+        "applicationNumber": "AICTE-2026-CHAN-001",
+        "applicationCategory": "Change of Affiliating University / Board",
+        "documents": [],
+    }
+
+    result = rule_engine.evaluate_application(app_data, {})
+    assert result.category == "change_of_affiliating_university"
+
+    findings_by_id = {f.rule_id: f for f in result.findings}
+
+    # Both Section 2.11 documents are missing → DEFICIENT
+    assert "AFFIL-UNIV-NOC-F2" in findings_by_id, "NOC rule must be evaluated"
+    assert "AFFIL-RESOLUTION-F3" in findings_by_id, "Resolution rule must be evaluated"
+
+    noc_finding = findings_by_id["AFFIL-UNIV-NOC-F2"]
+    res_finding = findings_by_id["AFFIL-RESOLUTION-F3"]
+
+    assert noc_finding.status == "DEFICIENT"
+    assert res_finding.status == "DEFICIENT"
+
+    # Citations must reference Section 2.11, NOT Section 2.6
+    assert "2.11" in noc_finding.aph_clause, f"NOC finding must cite 2.11, got: {noc_finding.aph_clause}"
+    assert "2.6" not in noc_finding.aph_clause, f"NOC finding must NOT cite 2.6, got: {noc_finding.aph_clause}"
+    assert "2.11" in res_finding.aph_clause, f"Res finding must cite 2.11, got: {res_finding.aph_clause}"
+    assert "2.6" not in res_finding.aph_clause, f"Res finding must NOT cite 2.6, got: {res_finding.aph_clause}"
+
+    # Corrective action wording must be about affiliation change, NOT intake expansion / land allocation
+    assert "expansion" not in res_finding.recommendation.lower() or "affiliat" in res_finding.recommendation.lower()
+    assert "land, building" not in res_finding.recommendation.lower()
+    assert "affiliat" in res_finding.recommendation.lower() or "university" in res_finding.recommendation.lower()
+
+    # INTAKE-RESOLUTION-F3 must NOT appear
+    assert "INTAKE-RESOLUTION-F3" not in findings_by_id, (
+        "Section 2.6 INTAKE-RESOLUTION-F3 must NOT be evaluated for Change of Affiliating University/Board"
+    )
+
+    # Outcome must flag deficiency
+    assert result.outcome == "DEFICIENCY_SUGGESTED"
+
+
+def test_affiliation_change_placeholder_pdfs_detected():
+    """
+    Phase 4.2: Synthetic placeholder PDFs (verification stubs) for affiliation-change documents
+    must be detected as DEFICIENT — not treated as substantive uploaded evidence.
+    The placeholder header 'Official AICTE Regulatory Document Verification Copy' with no
+    real document body must trigger DEFICIENT status, not COMPLIANT or NEEDS_HUMAN_REVIEW.
+    """
+    PLACEHOLDER_TEXT = (
+        "Official AICTE Regulatory Document Verification Copy\n\n"
+        "Document ID: cmvpd2xty0051uc1o1dz8e1xx\n"
+        "Type: NOC from Affiliating University\n"
+        "Original Filename: University_NOC_Format2.pdf\n"
+        "Uploaded By: inst-user-1\n"
+        "Verification Status: pending\n"
+    )
+
+    app_data = {
+        "id": "app-affil-placeholder",
+        "applicationNumber": "AICTE-2026-CHAN-002",
+        "applicationCategory": "Change of Affiliating University / Board",
+        "documents": [
+            {"id": "d-noc", "documentType": "university_noc", "originalFilename": "University_NOC_Format2.pdf"},
+            {"id": "d-res", "documentType": "resolution", "originalFilename": "Trust_Resolution_F3.pdf"},
+        ],
+    }
+
+    extracted_docs = {
+        "d-noc": {"full_text": PLACEHOLDER_TEXT, "is_scanned": False},
+        "d-res": {
+            "full_text": (
+                "Official AICTE Regulatory Document Verification Copy\n\n"
+                "Document ID: cmvpd2xuc0053uc1o-res\n"
+                "Type: Trust Resolution Format 3\n"
+                "Verification Status: pending\n"
+            ),
+            "is_scanned": False,
+        },
+    }
+
+    result = rule_engine.evaluate_application(app_data, extracted_docs)
+    findings_by_id = {f.rule_id: f for f in result.findings}
+
+    # Both placeholder documents must be flagged as DEFICIENT
+    assert findings_by_id["AFFIL-UNIV-NOC-F2"].status == "DEFICIENT", (
+        "Placeholder NOC stub must be DEFICIENT, not treated as a genuine document"
+    )
+    assert findings_by_id["AFFIL-RESOLUTION-F3"].status == "DEFICIENT", (
+        "Placeholder Resolution stub must be DEFICIENT, not treated as genuine"
+    )
+
+    # Evidence text must explicitly mention placeholder/stub content
+    assert "placeholder" in findings_by_id["AFFIL-UNIV-NOC-F2"].evidence.lower() or \
+           "stub" in findings_by_id["AFFIL-UNIV-NOC-F2"].evidence.lower() or \
+           "verification copy" in findings_by_id["AFFIL-UNIV-NOC-F2"].evidence.lower()
+
+
+def test_affiliation_change_compliant_with_genuine_documents():
+    """
+    Phase 4.2: Affiliation change with genuine (non-placeholder) NOC and Resolution documents
+    must yield COMPLIANT findings with Section 2.11 citations.
+    """
+    app_data = {
+        "id": "app-affil-compliant",
+        "applicationNumber": "AICTE-2026-CHAN-003",
+        "applicationCategory": "Change of Affiliating University / Board",
+        "documents": [
+            {"id": "d-noc", "documentType": "university_noc", "originalFilename": "University_NOC_Format2.pdf"},
+            {"id": "d-res", "documentType": "resolution", "originalFilename": "Trust_Resolution_F3.pdf"},
+        ],
+    }
+
+    extracted_docs = {
+        "d-noc": {
+            "full_text": (
+                "No Objection Certificate — Format 2\n"
+                "The Registrar, XYZ University, hereby grants no objection to the change of "
+                "affiliating university/board for ABC Institute of Technology as per AICTE norms. "
+                "Sealed and signed by the Registrar on behalf of the University."
+            ),
+            "is_scanned": False,
+        },
+        "d-res": {
+            "full_text": (
+                "Governing Body Resolution — Format 3\n"
+                "Executive Meeting of ABC Educational Trust. Resolved that the Trust approves the "
+                "change of affiliating university from XYZ University to PQR University as per the "
+                "provisions of AICTE Approval Process Handbook 2024-27 Clause 2.11."
+            ),
+            "is_scanned": False,
+        },
+    }
+
+    result = rule_engine.evaluate_application(app_data, extracted_docs)
+    assert result.category == "change_of_affiliating_university"
+
+    findings_by_id = {f.rule_id: f for f in result.findings}
+    assert findings_by_id["AFFIL-UNIV-NOC-F2"].status == "COMPLIANT"
+    assert findings_by_id["AFFIL-RESOLUTION-F3"].status == "COMPLIANT"
+
+    # Citations must be Section 2.11
+    assert "2.11" in findings_by_id["AFFIL-UNIV-NOC-F2"].aph_clause
+    assert "2.11" in findings_by_id["AFFIL-RESOLUTION-F3"].aph_clause
+
+    # INTAKE-RESOLUTION-F3 must not appear
+    assert "INTAKE-RESOLUTION-F3" not in findings_by_id
+
+
+def test_groq_observations_not_automatically_statutory_deficiencies():
+    """
+    Phase 4.2: Groq advisory observations (e.g., Faculty Cadre Allocation, Layout Plan)
+    must NOT automatically appear as statutory deficiency findings for
+    Change of Affiliating University/Board applications.
+
+    The deterministic rule engine must only return rules applicable to
+    change_of_affiliating_university. Faculty Cadre and Layout Plan are
+    Increase-in-Intake/Additional-Course concepts — NOT required for affiliation change.
+    Validate that no deterministic rule for change_of_affiliating_university
+    references "faculty cadre" or "carpet area" / "layout plan".
+    """
+    app_data = {"applicationCategory": "Change of Affiliating University / Board"}
+    rules = get_applicable_rules("change_of_affiliating_university", app_data)
+
+    for rule in rules:
+        evidence_lower = rule.evidence_requirements.lower()
+        assert "faculty cadre" not in evidence_lower, (
+            f"Rule {rule.rule_id} must not require 'faculty cadre' for affiliation change"
+        )
+        assert "carpet area" not in evidence_lower, (
+            f"Rule {rule.rule_id} must not require 'carpet area' for affiliation change"
+        )
+        assert "layout plan" not in evidence_lower, (
+            f"Rule {rule.rule_id} must not require 'layout plan' for affiliation change"
+        )
+        assert "instructional area" not in evidence_lower, (
+            f"Rule {rule.rule_id} must not require 'instructional area' for affiliation change"
+        )
+
+
+def test_affil_change_resolution_wording_not_expansion():
+    """
+    Phase 4.2: The AFFIL-RESOLUTION-F3 evidence_requirements must not contain
+    expansion-specific or land/building-allocation wording that belongs to Section 2.6.
+    """
+    rule = RULE_CATALOG.get("AFFIL-RESOLUTION-F3")
+    assert rule is not None
+
+    ev = rule.evidence_requirements.lower()
+    # Must NOT say "expansion" in the context of intake/land/building
+    assert "expansion" not in ev or "affiliat" in ev, (
+        "AFFIL-RESOLUTION-F3 evidence_requirements must not use intake-expansion language"
+    )
+    assert "allocating land" not in ev
+    assert "land, building and funds" not in ev
+    assert "additional infrastructure" not in ev
+
+    # Must reference affiliation change
+    assert "affiliat" in ev or "university" in ev
+
+
+def test_resolution_format3_across_all_16_categories():
+    """
+    Phase 4.2 Comprehensive Matrix Test:
+    Verify that check_resolution_format_3 dynamically maps to the exact verified
+    Annexure-2 section and Format 3 clause for all categories requiring a resolution.
+    Strictly enforce that ONLY increase_intake and additional_course receive Section 2.6.iii
+    or intake expansion / land / building / funds wording.
+    All other categories must NEVER receive Section 2.6 wording.
+    """
+    from rules.category_rules import check_resolution_format_3, CATEGORY_RESOLUTION_CONFIG
+
+    expansion_categories = {"increase_intake", "additional_course"}
+
+    for cat_code, display_name in CANONICAL_APPLICATION_TYPES.items():
+        app_data = {"applicationCategory": display_name}
+        finding = check_resolution_format_3(app_data, {})
+
+        if cat_code in CATEGORY_RESOLUTION_CONFIG:
+            # Must have finding
+            assert finding.status == "DEFICIENT"
+            rec_lower = finding.recommendation.lower()
+            clause_lower = finding.aph_clause.lower()
+
+            if cat_code in expansion_categories:
+                assert "2.6" in finding.aph_clause, f"{cat_code} must reference Section 2.6"
+                assert "clause x" in clause_lower or "clause 2.6" in clause_lower
+            else:
+                assert "2.6" not in finding.aph_clause, (
+                    f"Category {cat_code} must NOT reference Section 2.6, got: {finding.aph_clause}"
+                )
+                assert "allocating requisite land, building, and funds" not in rec_lower, (
+                    f"Category {cat_code} must NOT have intake expansion land/funds text, got: {finding.recommendation}"
+                )
+                assert "expansion" not in rec_lower or "affiliat" in rec_lower, (
+                    f"Category {cat_code} must not contain generic intake expansion text: {finding.recommendation}"
+                )
+
+            # Specific verified APH checks per category
+            if cat_code == "change_of_affiliating_university":
+                assert "2.11" in finding.aph_clause
+                assert "xvi" in clause_lower
+                assert "84" in finding.aph_clause
+                assert "205" in finding.aph_clause
+            elif cat_code == "change_of_name":
+                assert "2.10" in finding.aph_clause
+                assert "xiv" in clause_lower
+            elif cat_code == "closure_of_institution":
+                assert "2.7" in finding.aph_clause
+                assert "xi" in clause_lower
+            elif cat_code == "merger_of_institutions":
+                assert "2.4" in finding.aph_clause
+                assert "viii" in clause_lower
+            elif cat_code == "new_programme":
+                assert "2.3" in finding.aph_clause
+                assert "vii" in clause_lower
+            elif cat_code == "change_of_site":
+                assert "2.3" in finding.aph_clause
+                assert "iv" in clause_lower
+            elif cat_code in ("reduction_in_intake", "closure_of_course", "merger_of_courses"):
+                assert "2.9" in finding.aph_clause
+                assert "xiii" in clause_lower
+            elif cat_code == "conversion_of_institution_type":
+                assert "2.8" in finding.aph_clause
+                assert "xii" in clause_lower
+            elif cat_code == "nri_supernumerary_seats":
+                assert "2.2" in finding.aph_clause
+                assert "iii" in clause_lower
+
+
+def test_change_of_affiliating_university_citations_exact_pages():
+    """
+    Phase 4.2: Verify that Change of Affiliating University rules strictly cite
+    APH 2024-2027 Section 2.11 (Page 84), Format 2 Clause xiv (Page 202),
+    and Format 3 Clause xvi (Page 205).
+    """
+    app_data = {"applicationCategory": "Change of Affiliating University / Board"}
+    rules = get_applicable_rules("change_of_affiliating_university", app_data)
+    rule_map = {r.rule_id: r for r in rules}
+
+    assert "AFFIL-UNIV-NOC-F2" in rule_map
+    assert "AFFIL-RESOLUTION-F3" in rule_map
+    assert "AFFIL-PROPOSED-CONSENT" in rule_map
+    assert "INTAKE-RESOLUTION-F3" not in rule_map
+
+    # Check NOC Format 2
+    noc_rule = rule_map["AFFIL-UNIV-NOC-F2"]
+    assert "2.11" in noc_rule.aph_clause
+    assert "84" in noc_rule.aph_clause or "84" in noc_rule.aph_annexure
+    assert "202" in noc_rule.aph_clause or "202" in noc_rule.aph_annexure
+    assert "xiv" in noc_rule.aph_clause.lower() or "xiv" in noc_rule.aph_annexure.lower()
+
+    # Check Resolution Format 3
+    res_rule = rule_map["AFFIL-RESOLUTION-F3"]
+    assert "2.11" in res_rule.aph_clause
+    assert "84" in res_rule.aph_clause or "84" in res_rule.aph_annexure
+    assert "205" in res_rule.aph_clause or "205" in res_rule.aph_annexure
+    assert "xvi" in res_rule.aph_clause.lower() or "xvi" in res_rule.aph_annexure.lower()
+
+    # Check Proposed University Consent
+    prop_rule = rule_map["AFFIL-PROPOSED-CONSENT"]
+    assert "2.11" in prop_rule.aph_clause or "2.11" in prop_rule.aph_annexure
+    assert "205" in prop_rule.aph_clause or "205" in prop_rule.aph_annexure
+
+
+def test_change_of_affiliating_university_synthetic_stubs_flagged_deficient():
+    """
+    Phase 4.2: Synthetic verification stubs in document fixtures must be flagged DEFICIENT
+    as placeholders, not accepted or silently treated as compliant.
+    """
+    app_data = {
+        "id": "app-test-affil",
+        "applicationCategory": "Change of Affiliating University / Board",
+        "documents": [
+            {"id": "doc-noc", "documentType": "university_noc", "originalFilename": "NOC_Current_University.pdf"},
+            {"id": "doc-prop", "documentType": "proposed_university_consent", "originalFilename": "Consent_Proposed_University.pdf"},
+        ],
+    }
+    stub_text = (
+        "Official AICTE Regulatory Document Verification Copy\n"
+        "Application: AICTE-2026-CHAN-452393\n"
+        "Hash: abc"
+    )
+    extracted_docs = {
+        "doc-noc": {"full_text": stub_text, "is_scanned": False, "is_placeholder": True},
+        "doc-prop": {"full_text": stub_text, "is_scanned": False, "is_placeholder": True},
+    }
+
+    res = rule_engine.evaluate_application(app_data, extracted_docs)
+    findings = {f.rule_id: f for f in res.findings}
+
+    assert findings["AFFIL-UNIV-NOC-F2"].status == "DEFICIENT"
+    assert "placeholder" in findings["AFFIL-UNIV-NOC-F2"].evidence.lower() or "stub" in findings["AFFIL-UNIV-NOC-F2"].evidence.lower()
+
+    assert findings["AFFIL-PROPOSED-CONSENT"].status == "DEFICIENT"
+    assert "placeholder" in findings["AFFIL-PROPOSED-CONSENT"].evidence.lower() or "stub" in findings["AFFIL-PROPOSED-CONSENT"].evidence.lower()
+
+    assert findings["AFFIL-RESOLUTION-F3"].status == "DEFICIENT"
+    assert "2.6" not in findings["AFFIL-RESOLUTION-F3"].aph_clause

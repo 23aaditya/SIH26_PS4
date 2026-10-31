@@ -45,6 +45,8 @@ router.get("/dashboard/metrics", denySystemService, aicteController.getDashboard
 // Applications queue & listings
 router.get("/applications", aicteController.listApplications);
 router.get("/applications/:id", aicteController.getApplicationById);
+router.get("/applications/:id/eligibility", aicteController.getEligibility);
+router.post("/applications/:id/reconcile-deficiency", denySystemService, aicteController.reconcileDeficiencyState);
 router.get("/applications/:id/timeline", aicteController.getTimeline);
 router.get("/applications/:id/documents", aicteController.getDocuments);
 router.get("/applications/:id/assignments", aicteController.getAssignments);

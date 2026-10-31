@@ -192,6 +192,31 @@ export const workflowInstanceService = {
       );
     }
 
+    // Active Deficiency Lock Gate: Cannot transition workflow stage while deficiency is pending
+    const pendingDef = await prisma.deficiencyRequest.findFirst({
+      where: { applicationId, status: "pending" },
+    });
+    if (pendingDef && outcome !== "DEFICIENCY") {
+      throw Object.assign(
+        new Error("Cannot transition workflow stage while an official deficiency notice is pending institutional response."),
+        {
+          status: 409,
+          code: "DEFICIENCY_RESPONSE_PENDING",
+          activeDeficiency: {
+            id: pendingDef.id,
+            status: pendingDef.status,
+            dueAt: pendingDef.dueAt,
+          },
+        }
+      );
+    }
+
+
+
+
+
+
+
     const nextStageKey = resolveNextStageKey(template, stageInstance.stageKey, outcome);
     const isFinalDecision = stageDef?.isFinal || false;
 
@@ -404,8 +429,12 @@ export const workflowInstanceService = {
           const wasFailedLlm = existingMeta.llmAnalysis?.status === "TECHNICAL_FAILURE" || existingMeta.llmAnalysis?.status === "SKIPPED";
           const isNowSuccessLlm = newMeta.llmAnalysis?.status === "SUCCESS";
           const hasNewFindings = (newMeta.llmFindings?.length || 0) > (existingMeta.llmFindings?.length || 0);
+          const existingFindingsStr = JSON.stringify(existingMeta.findings || []);
+          const newFindingsStr = JSON.stringify(newMeta.findings || []);
+          const deterministicFindingsChanged = existingFindingsStr !== newFindingsStr;
+          const isRerun = Boolean(newMeta.isRerun || reportData.isRerun || reportData.forceRerun);
 
-          if ((wasFailedLlm && isNowSuccessLlm) || hasNewFindings || newMeta.isResubmission) {
+          if ((wasFailedLlm && isNowSuccessLlm) || hasNewFindings || newMeta.isResubmission || deterministicFindingsChanged || isRerun) {
             const updated = await tx.reviewReport.update({
               where: { id: existing.id },
               data: {

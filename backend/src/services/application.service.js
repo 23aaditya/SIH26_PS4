@@ -1,6 +1,8 @@
+import { workflowEligibilityService } from "./workflowEligibility.service.js";
 import prisma from "../db/prisma.js";
 import { workflowService } from "./workflow.service.js";
 import { workflowInstanceService } from "./workflowInstance.service.js";
+import { agentEventService } from "./agentEvent.service.js";
 
 export const applicationService = {
   async saveDraft(user, data, applicationId = null) {
@@ -438,6 +440,7 @@ export const applicationService = {
       console.warn("[AI-Scrutiny-Assistant] Dispatch error:", dispatchErr.message);
     }
 
+    agentEventService.dispatchLifecycleEvent("APPLICATION_SUBMITTED", result.id, { applicationNumber: result.applicationNumber, category: result.applicationCategory }, user.id);
     return result;
   },
 
@@ -450,6 +453,7 @@ export const applicationService = {
   },
 
   async advanceStage(user, applicationId, reason) {
+    await workflowEligibilityService.assertCanAdvance(applicationId, user);
     const application = await prisma.application.findUnique({
       where: { id: applicationId },
       include: { institution: true },
@@ -636,6 +640,7 @@ export const applicationService = {
         },
       });
 
+      agentEventService.dispatchLifecycleEvent("DEFICIENCY_RAISED", applicationId, { deficiencyText }, user.id);
       return updated;
     });
   },
@@ -779,10 +784,12 @@ export const applicationService = {
       console.warn("[AI-Scrutiny-Assistant] Resubmission dispatch error:", dispatchErr.message);
     }
 
+    agentEventService.dispatchLifecycleEvent("RESUBMISSION_RECEIVED", resResult.id, { responseText }, user.id);
     return resResult;
   },
 
   async recordDecision(user, applicationId, decision, remarks, conditions) {
+    await workflowEligibilityService.assertCanDecide(applicationId, user);
     const application = await prisma.application.findUnique({
       where: { id: applicationId },
       include: { institution: true },

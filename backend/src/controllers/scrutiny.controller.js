@@ -130,8 +130,8 @@ export const scrutinyController = {
 
       // Least-privilege constraint for system_service:
       if (req.user?.accountType === "system_service") {
-        const allowedStatuses = ["in_review"];
-        const allowedStages = ["scrutiny", "re_scrutiny"];
+        const allowedStatuses = ["in_review", "awaiting_institution"];
+        const allowedStages = ["scrutiny", "re_scrutiny", "clarification"];
 
         if (!allowedStatuses.includes(application.status) || !allowedStages.includes(application.currentStageId)) {
           return res.status(403).json({
@@ -143,9 +143,21 @@ export const scrutinyController = {
         }
       }
 
+      const pendingDef = (application.deficiencies || []).find((d) => d.status === "pending");
+      const isAwaitingInstitution = application.status === "awaiting_institution" || application.currentStageId === "clarification";
+      const hasActiveDeficiency = Boolean(pendingDef || isAwaitingInstitution);
+
       res.json({
         ...application,
         formData: application.formDataJson ? JSON.parse(application.formDataJson) : {},
+        hasActiveDeficiency,
+        activeDeficiency: pendingDef ? {
+          id: pendingDef.id,
+          status: pendingDef.status,
+          cycleNumber: application.returnCount || 1,
+          dueAt: pendingDef.dueAt || application.dueAt,
+          createdAt: pendingDef.createdAt,
+        } : null,
       });
     } catch (error) {
       next(error);
@@ -225,6 +237,23 @@ export const scrutinyController = {
 
       if (!application) {
         return res.status(404).json({ error: "Application not found" });
+      }
+
+      if (application.status === "awaiting_institution" || application.currentStageId === "clarification") {
+        return res.status(400).json({
+          error: "An official deficiency notice has already been issued for this cycle and is awaiting institutional response. Cannot issue duplicate notice.",
+          code: "DEFICIENCY_ALREADY_ACTIVE",
+        });
+      }
+
+      const existingPendingScrutiny = await prisma.deficiencyRequest.findFirst({
+        where: { applicationId: application.id, status: "pending" },
+      });
+      if (existingPendingScrutiny) {
+        return res.status(400).json({
+          error: "A pending deficiency notice is already active for this application. Cannot issue duplicate notice.",
+          code: "DEFICIENCY_ALREADY_PENDING",
+        });
       }
 
       const now = new Date();

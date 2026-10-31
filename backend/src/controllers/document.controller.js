@@ -148,8 +148,8 @@ export const documentController = {
       // Can ONLY download documents belonging to applications actively undergoing scrutiny
       if (req.user?.accountType === "system_service") {
         const parentApp = doc.application;
-        const allowedStatuses = ["in_review"];
-        const allowedStages = ["scrutiny", "re_scrutiny"];
+        const allowedStatuses = ["in_review", "awaiting_institution"];
+        const allowedStages = ["scrutiny", "re_scrutiny", "clarification"];
 
         if (!parentApp || !allowedStatuses.includes(parentApp.status) || !allowedStages.includes(parentApp.currentStageId)) {
           res.status(403).json({

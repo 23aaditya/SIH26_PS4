@@ -1,8 +1,10 @@
+import { workflowEligibilityService } from "../services/workflowEligibility.service.js";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
 import prisma from "../db/prisma.js";
 import { applicationService } from "../services/application.service.js";
+import { agentEventService } from "../services/agentEvent.service.js";
 
 export const applicationController = {
   async list(req, res, next) {
@@ -218,8 +220,8 @@ export const applicationController = {
 
       // Least-privilege constraint for system_service:
       if (req.user?.accountType === "system_service") {
-        const allowedStatuses = ["in_review"];
-        const allowedStages = ["scrutiny", "re_scrutiny"];
+        const allowedStatuses = ["in_review", "awaiting_institution"];
+        const allowedStages = ["scrutiny", "re_scrutiny", "clarification"];
 
         if (!allowedStatuses.includes(application.status) || !allowedStages.includes(application.currentStageId)) {
           return res.status(403).json({
@@ -349,6 +351,9 @@ export const applicationController = {
         },
       });
 
+      if (application.status !== "draft") {
+        agentEventService.dispatchLifecycleEvent("DOCUMENTS_UPDATED", applicationId, { documentId: created.id, documentType: created.documentType }, req.user?.id);
+      }
       res.status(201).json({ success: true, document: created });
     } catch (error) {
       next(error);
@@ -409,6 +414,7 @@ export const applicationController = {
 
       const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
       const { reason } = req.body;
+      await workflowEligibilityService.assertCanAdvance(id, req.user);
       const updated = await applicationService.advanceStage(req.user, id, reason);
 
       res.json({ success: true, application: updated });
@@ -475,6 +481,7 @@ export const applicationController = {
 
       const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
       const { decision, remarks, conditions } = req.body;
+      await workflowEligibilityService.assertCanDecide(id, req.user);
 
       const normalizedDecision =
         decision === "grant_approval" || decision === "approved" ? "grant_approval" : "reject";

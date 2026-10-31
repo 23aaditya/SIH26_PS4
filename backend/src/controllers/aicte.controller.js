@@ -1,3 +1,5 @@
+import { workflowEligibilityService } from "../services/workflowEligibility.service.js";
+import { agentEventService } from "../services/agentEvent.service.js";
 /**
  * AICTE Application Processing Controller
  * Handles all AICTE-side application queue, detail, timeline, and action endpoints.
@@ -63,14 +65,50 @@ function formatApp(app, isSystemService = false) {
     }
     return doc;
   });
+  const pendingDef = (app.deficiencies || []).find((d) => d.status === "pending");
+  const isAwaitingInstitution = app.status === "awaiting_institution" || app.currentStageId === "clarification";
+  const hasActiveDeficiency = Boolean(pendingDef || isAwaitingInstitution);
+
   return {
     ...app,
     documents,
     formData: app.formDataJson ? JSON.parse(app.formDataJson) : {},
+    hasActiveDeficiency,
+    activeDeficiency: pendingDef ? {
+      id: pendingDef.id,
+      status: pendingDef.status,
+      cycleNumber: app.returnCount || 1,
+      dueAt: pendingDef.dueAt || app.dueAt,
+      createdAt: pendingDef.createdAt,
+    } : null,
   };
 }
 
 export const aicteController = {
+  // ─── GET /api/aicte/applications/:id/eligibility ─────────────────────────
+  async getEligibility(req, res, next) {
+    try {
+      const { id } = req.params;
+      const eligibility = await workflowEligibilityService.getEligibility(id, req.user);
+      res.json(eligibility);
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  // ─── POST /api/aicte/applications/:id/reconcile-deficiency ───────────────
+  async reconcileDeficiencyState(req, res, next) {
+    try {
+      if (!req.user || req.user.accountType === "institution") {
+        return res.status(403).json({ error: "Access denied." });
+      }
+      const { id } = req.params;
+      const result = await workflowEligibilityService.reconcileApplicationDeficiencyState(id, req.user);
+      res.json({ success: true, ...result });
+    } catch (err) {
+      next(err);
+    }
+  },
   // ─── GET /api/aicte/applications ─────────────────────────────────────────
   async listApplications(req, res, next) {
     try {
@@ -197,8 +235,8 @@ export const aicteController = {
       // F-01: Least-privilege constraint for automated system_service:
       // Can ONLY retrieve applications that are actively in scrutiny stage (status: in_review, currentStageId: scrutiny)
       if (req.user?.accountType === "system_service") {
-        const allowedStatuses = ["in_review"];
-        const allowedStages = ["scrutiny", "re_scrutiny"];
+        const allowedStatuses = ["in_review", "awaiting_institution"];
+        const allowedStages = ["scrutiny", "re_scrutiny", "clarification"];
 
         if (!allowedStatuses.includes(app.status) || !allowedStages.includes(app.currentStageId)) {
           return res.status(403).json({
@@ -615,6 +653,14 @@ export const aicteController = {
         }
 
         const jobData = await aiResp.json();
+        // Trigger autonomous agent next-action evaluation for the evaluated dossier
+        agentEventService.dispatchLifecycleEvent(
+          "SCRUTINY_COMPLETED",
+          app.id,
+          { forceRerun: Boolean(forceRerun), retryLlm: Boolean(retryLlm) },
+          req.user?.id
+        );
+
         return res.json({
           success: true,
           jobId: jobData.job_id,
@@ -664,6 +710,14 @@ export const aicteController = {
         }
 
         const jobData = await aiResp.json();
+        // Trigger autonomous agent next-action evaluation for the evaluated dossier
+        agentEventService.dispatchLifecycleEvent(
+          "SCRUTINY_COMPLETED",
+          app.id,
+          { forceRerun: Boolean(forceRerun), retryLlm: Boolean(retryLlm) },
+          req.user?.id
+        );
+
         return res.json({
           success: true,
           jobId: jobData.job_id,
@@ -788,6 +842,23 @@ export const aicteController = {
       });
       if (!app) return res.status(404).json({ error: "Application not found." });
 
+      if (app.status === "awaiting_institution" || app.currentStageId === "clarification") {
+        return res.status(400).json({
+          error: "An official deficiency notice has already been issued for this cycle and is awaiting institutional response. Cannot issue duplicate notice.",
+          code: "DEFICIENCY_ALREADY_ACTIVE",
+        });
+      }
+
+      const existingPending = await prisma.deficiencyRequest.findFirst({
+        where: { applicationId: app.id, status: "pending" },
+      });
+      if (existingPending) {
+        return res.status(400).json({
+          error: "A pending deficiency notice is already active for this application. Cannot issue duplicate notice.",
+          code: "DEFICIENCY_ALREADY_PENDING",
+        });
+      }
+
       const now = new Date();
       const dueDate = new Date(now.getTime() + dueDays * 86400000);
       const fullText = `${deficiencyCategory ? `[${deficiencyCategory}] ` : ""}${deficiencyText.trim()}${relatedDocument ? ` (Ref: ${relatedDocument})` : ""}`;
@@ -909,6 +980,9 @@ export const aicteController = {
       const { id } = req.params;
       const { outcome, reason } = req.body;
 
+      // Authoritative Active Deficiency Lock Gate
+      await workflowEligibilityService.assertCanAdvance(id, req.user);
+
       const app = await prisma.application.findUnique({ where: { id } });
       if (!app) return res.status(404).json({ error: "Application not found." });
 
@@ -965,6 +1039,10 @@ export const aicteController = {
         return res.status(403).json({ error: "Access denied." });
       }
 
+      const { id } = req.params;
+      // Authoritative Active Deficiency Lock Gate
+      await workflowEligibilityService.assertCanDecide(id, req.user);
+
       const perms = req.user.permissions || [];
       const canDecide = perms.includes("ISSUE_FINAL_DECISION") ||
         req.user.role === "competent_authority" ||
@@ -975,7 +1053,6 @@ export const aicteController = {
         return res.status(403).json({ error: "You do not have permission to issue final approval/rejection orders." });
       }
 
-      const { id } = req.params;
       const { decisionType, outcome, reasonAndFindings, conditions, documentLetterType, appealEligible = true } = req.body;
       const effectiveOutcome = outcome || decisionType;
 
@@ -1279,73 +1356,6 @@ export const aicteController = {
       });
 
       res.json({ success: true, document: updated });
-    } catch (err) {
-      next(err);
-    }
-  },
-
-  // ─── POST /api/aicte/applications/:id/trigger-ai ────────────────────────
-  async triggerAiScrutiny(req, res, next) {
-    try {
-      const { id } = req.params;
-      const { forceRerun, retryLlm, is_resubmission } = req.body || {};
-
-      const app = await prisma.application.findFirst({
-        where: { OR: [{ id }, { applicationNumber: id }] },
-      });
-      if (!app) return res.status(404).json({ error: "Application not found." });
-
-      const aiServiceUrl = process.env.AI_SERVICE_URL || "http://127.0.0.1:8000";
-      const secret = process.env.AI_BACKEND_SECRET || "aicte_agent_secret_prod_2026_x89f_secure_token";
-
-      const aiResp = await fetch(`${aiServiceUrl}/api/v1/jobs/trigger`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Service-Authorization": `Bearer ${secret}`,
-        },
-        body: JSON.stringify({
-          application_id: app.id,
-          application_number: app.applicationNumber,
-          force_rerun: !!forceRerun,
-          retry_llm: !!retryLlm,
-          is_resubmission: !!is_resubmission,
-        }),
-      });
-
-      if (!aiResp.ok) {
-        const errJson = await aiResp.json().catch(() => ({}));
-        return res.status(aiResp.status).json({
-          error: errJson.detail || "AI microservice failed to trigger scrutiny job.",
-        });
-      }
-
-      const jobData = await aiResp.json();
-      return res.json({ success: true, job: jobData });
-    } catch (err) {
-      next(err);
-    }
-  },
-
-  // ─── GET /api/aicte/applications/:id/ai-job-status/:jobId ───────────────
-  async getAiJobStatus(req, res, next) {
-    try {
-      const { jobId } = req.params;
-      const aiServiceUrl = process.env.AI_SERVICE_URL || "http://127.0.0.1:8000";
-      const secret = process.env.AI_BACKEND_SECRET || "aicte_agent_secret_prod_2026_x89f_secure_token";
-
-      const statusResp = await fetch(`${aiServiceUrl}/api/v1/jobs/${jobId}`, {
-        headers: {
-          "X-Service-Authorization": `Bearer ${secret}`,
-        },
-      });
-
-      if (!statusResp.ok) {
-        return res.status(statusResp.status).json({ error: "Failed to fetch AI job status." });
-      }
-
-      const statusData = await statusResp.json();
-      return res.json(statusData);
     } catch (err) {
       next(err);
     }
