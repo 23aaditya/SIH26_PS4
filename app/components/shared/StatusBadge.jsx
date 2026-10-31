@@ -27,13 +27,13 @@ export function StatusBadge({ status, className, showDot = true }) {
             break;
         case "pending_evc":
             label = "EVC Scheduled / Pending";
-            colorClasses = "bg-purple-50 text-purple-700 border-purple-200";
-            dotColor = "bg-purple-600";
+            colorClasses = "bg-sky-50 text-sky-800 border-sky-200";
+            dotColor = "bg-sky-600";
             break;
         case "awaiting_committee":
             label = "Awaiting Committee";
-            colorClasses = "bg-indigo-50 text-indigo-700 border-indigo-200";
-            dotColor = "bg-indigo-600";
+            colorClasses = "bg-blue-50 text-[#1E40AF] border-blue-200";
+            dotColor = "bg-[#1E40AF]";
             break;
         case "decision_recorded":
             label = "Decision Recorded";

@@ -164,35 +164,43 @@ function InstitutionDashboardContent() {
     },
   ];
 
+  const handleMouseMove = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    e.currentTarget.style.setProperty("--mouse-x", `${x}px`);
+    e.currentTarget.style.setProperty("--mouse-y", `${y}px`);
+  };
+
   return (
-    <div className="space-y-6">
+    <div onMouseMove={handleMouseMove} className="interactive-blue-grid space-y-6 p-4 sm:p-6 rounded-2xl transition-all">
       {/* Institution Banner & Quick Action */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-200/80 pb-5">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-[#E2E8F0] pb-5">
         <div>
           <div className="flex items-center gap-2">
-            <span className="text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+            <span className="text-[11px] font-mono font-semibold uppercase tracking-wider text-[#0F172A] bg-white px-2 py-0.5 rounded-[4px] border border-[#CBD5E1]">
               PID: {institutionCode}
             </span>
-            <span className="text-xs text-slate-400">•</span>
-            <span className="text-xs text-slate-500 font-medium">Western Region (Mumbai)</span>
+            <span className="text-xs text-slate-300">•</span>
+            <span className="text-xs text-slate-600 font-medium">Western Region (Mumbai)</span>
           </div>
-          <h1 className="mt-1 text-xl font-bold text-slate-900 tracking-tight sm:text-2xl">
+          <h1 className="mt-1.5 text-2xl font-bold text-[#0F172A] tracking-tight sm:text-3xl">
             {institutionName}
           </h1>
-          <p className="mt-0.5 text-xs text-slate-500">
+          <p className="mt-0.5 text-xs text-slate-600 font-normal">
             AICTE Regulatory Portal — AY 2026-27 Approval Automation & Compliance Hub
           </p>
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
           <Link href="/institution/compliance">
-            <Button variant="outline" size="sm" className="text-xs">
-              <CalendarClock className="h-3.5 w-3.5 text-slate-600" />
+            <Button variant="outline" size="sm" className="text-xs h-8 rounded-[6px] border-[#CBD5E1] hover:border-slate-400 hover:bg-slate-50 text-[#0F172A] font-medium shadow-xs">
+              <CalendarClock className="h-3.5 w-3.5 text-[#1E40AF]" />
               Compliance Tasks ({pendingUndertakings.length})
             </Button>
           </Link>
           <Link href="/institution/applications/new">
-            <Button size="sm" className="text-xs bg-blue-600 hover:bg-blue-700 text-white shadow-xs">
+            <Button size="sm" className="text-xs h-8 bg-[#1E40AF] hover:bg-[#1E3A8A] text-white rounded-[6px] font-medium shadow-xs transition-all duration-150">
               <Plus className="h-3.5 w-3.5" />
               New Application
             </Button>
@@ -202,7 +210,7 @@ function InstitutionDashboardContent() {
 
       {/* Error state banner */}
       {error && (
-        <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-xs text-rose-900 flex items-center justify-between">
+        <div className="rounded-[6px] border border-rose-200 bg-rose-50 p-4 text-xs text-rose-900 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <AlertCircle className="h-4 w-4 text-rose-600 shrink-0" />
             <span>
@@ -213,7 +221,7 @@ function InstitutionDashboardContent() {
             size="sm"
             variant="outline"
             onClick={() => fetchDashboardData()}
-            className="text-xs border-rose-300 text-rose-800 hover:bg-rose-100 h-7"
+            className="text-xs border-rose-300 text-rose-800 hover:bg-rose-100 h-7 rounded-[5px]"
           >
             <RefreshCw className="h-3 w-3 mr-1" /> Retry
           </Button>
@@ -222,22 +230,22 @@ function InstitutionDashboardContent() {
 
       {/* Action Required Alert Banner if deficiencies exist */}
       {!loading && actionRequiredApps.length > 0 && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-4 shadow-2xs">
+        <div className="rounded-[8px] border border-red-200 bg-red-50/80 p-4 shadow-xs">
           <div className="flex items-start gap-3">
-            <AlertTriangle className="h-5 w-5 text-amber-700 shrink-0 mt-0.5" />
+            <AlertTriangle className="h-5 w-5 text-red-600 shrink-0 mt-0.5" />
             <div className="flex-1">
-              <h3 className="text-xs font-semibold text-amber-900">
+              <h3 className="text-xs font-bold text-red-900 uppercase tracking-wide">
                 Immediate Action Required: Deficiency Letters Issued
               </h3>
-              <p className="mt-0.5 text-xs text-amber-700">
+              <p className="mt-0.5 text-xs text-red-800 font-normal">
                 AICTE Scrutiny has flagged items on {actionRequiredApps.length} application(s). Please review and upload clarification documents before the stipulated deadline.
               </p>
-              <div className="mt-2 flex flex-wrap gap-2">
+              <div className="mt-2.5 flex flex-wrap gap-2">
                 {actionRequiredApps.map((app) => (
                   <Link
                     key={app.id}
                     href={`/institution/applications/${app.id}`}
-                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-900 bg-white px-2.5 py-1 rounded border border-amber-300 hover:bg-amber-100 transition shadow-2xs"
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-red-700 bg-white px-2.5 py-1 rounded-[5px] border border-red-300 hover:bg-red-50 transition duration-150 shadow-xs"
                   >
                     Resolve {app.applicationNumber} ({getApplicationCategoryLabel(app?.applicationCategory)})
                     <ArrowRight className="h-3 w-3" />
@@ -256,25 +264,25 @@ function InstitutionDashboardContent() {
           return (
             <Card
               key={stat.label}
-              className={`border border-slate-200/90 shadow-2xs hover:shadow-xs transition bg-white ${
-                stat.highlight ? "border-amber-300 ring-1 ring-amber-200" : ""
+              className={`rounded-[8px] border border-[#E2E8F0] hover:border-slate-300 hover:-translate-y-0.5 transition-all duration-200 bg-white/90 backdrop-blur-xs shadow-xs ${
+                stat.highlight ? "border-red-300 ring-1 ring-red-200" : ""
               }`}
             >
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
                     {stat.label}
                   </span>
-                  <div className={`flex h-7 w-7 items-center justify-center rounded-md ${stat.bg}`}>
-                    <Icon className={`h-4 w-4 ${stat.color}`} />
+                  <div className="flex h-7 w-7 items-center justify-center rounded-[6px] bg-slate-50 border border-[#CBD5E1]">
+                    <Icon className="h-3.5 w-3.5 text-[#1E40AF]" />
                   </div>
                 </div>
                 <div className="mt-2 flex items-baseline gap-2">
-                  <span className="text-2xl font-bold tracking-tight text-slate-900">
+                  <span className="text-3xl font-light font-mono tracking-tight text-[#0F172A]">
                     {stat.value}
                   </span>
                 </div>
-                <p className="mt-1 text-[11px] text-slate-500 truncate">{stat.subtext}</p>
+                <p className="mt-1 text-[11px] text-slate-500 truncate font-normal">{stat.subtext}</p>
               </CardContent>
             </Card>
           );
@@ -282,18 +290,18 @@ function InstitutionDashboardContent() {
       </div>
 
       {/* Applications Table */}
-      <Card className="border border-slate-200/90 shadow-2xs bg-white">
-        <CardHeader className="p-4 border-b border-slate-100 flex flex-row items-center justify-between">
+      <Card className="rounded-[8px] border border-[#E2E8F0] bg-white/90 backdrop-blur-xs shadow-xs overflow-hidden">
+        <CardHeader className="p-4 border-b border-[#E2E8F0] flex flex-row items-center justify-between bg-slate-50/50">
           <div>
-            <CardTitle className="text-sm font-semibold text-slate-900">
+            <CardTitle className="text-base font-bold text-[#0F172A] tracking-tight">
               Applications in Progress
             </CardTitle>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Live status, assigned stage and regulatory deadlines for current academic cycle
+            <p className="text-xs text-slate-500 mt-0.5 font-normal">
+              Live status, assigned regulatory stage, and statutory deadlines for current academic cycle
             </p>
           </div>
           <Link href="/institution/applications">
-            <Button variant="ghost" size="sm" className="text-xs text-blue-600 hover:text-blue-700">
+            <Button variant="ghost" size="sm" className="text-xs text-[#1E40AF] hover:text-[#1E3A8A] font-semibold hover:bg-blue-50/50">
               View All ({loading ? "..." : apps.length}) <ChevronRight className="h-3.5 w-3.5 ml-0.5" />
             </Button>
           </Link>
@@ -301,52 +309,52 @@ function InstitutionDashboardContent() {
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
             <thead>
-              <tr className="border-b border-slate-200 bg-slate-50/70 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-                <th className="py-2.5 px-4">Application No</th>
-                <th className="py-2.5 px-4">Category</th>
-                <th className="py-2.5 px-4">Current Stage</th>
-                <th className="py-2.5 px-4">Status</th>
-                <th className="py-2.5 px-4">SLA / Deadline</th>
-                <th className="py-2.5 px-4 text-right">Actions</th>
+              <tr className="border-b border-[#E2E8F0] bg-slate-50 text-[10px] font-bold uppercase tracking-wider text-slate-600">
+                <th className="py-2.5 px-4 font-bold">Application No</th>
+                <th className="py-2.5 px-4 font-bold">Category</th>
+                <th className="py-2.5 px-4 font-bold">Current Stage</th>
+                <th className="py-2.5 px-4 font-bold">Status</th>
+                <th className="py-2.5 px-4 font-bold">SLA / Deadline</th>
+                <th className="py-2.5 px-4 text-right font-bold">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-[#E2E8F0]">
               {loading ? (
                 <tr>
                   <td colSpan={6} className="py-10 text-center text-slate-500">
-                    <Loader2 className="h-5 w-5 text-blue-600 animate-spin mx-auto mb-2" />
-                    <p className="text-xs font-medium">Synchronizing application data...</p>
+                    <Loader2 className="h-5 w-5 text-[#1E40AF] animate-spin mx-auto mb-2" />
+                    <p className="text-xs font-normal">Synchronizing application data...</p>
                   </td>
                 </tr>
               ) : apps.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="py-10 text-center text-slate-500">
                     <FileText className="h-7 w-7 text-slate-300 mx-auto mb-2" />
-                    <p className="text-xs font-medium text-slate-700">No applications on file</p>
-                    <p className="text-[11px] text-slate-400 mt-0.5">
+                    <p className="text-xs font-medium text-[#0F172A]">No applications on file</p>
+                    <p className="text-[11px] text-slate-400 mt-0.5 font-normal">
                       Click &ldquo;New Application&rdquo; to begin a statutory approval request
                     </p>
                   </td>
                 </tr>
               ) : (
                 apps.map((app) => (
-                  <tr key={app.id} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="py-3 px-4 font-mono font-semibold text-slate-900">
+                  <tr key={app.id} className="hover:bg-slate-50/80 transition-colors duration-150">
+                    <td className="py-3 px-4 font-mono font-semibold text-[#0F172A]">
                       <Link
                         href={`/institution/applications/${app.id}`}
-                        className="hover:underline text-blue-600 flex items-center gap-1"
+                        className="hover:text-[#1E3A8A] text-[#1E40AF] transition-all flex items-center gap-1"
                       >
                         {app.applicationNumber}
                       </Link>
                     </td>
-                    <td className="py-3 px-4 text-slate-700 font-medium">
+                    <td className="py-3 px-4 text-[#0F172A] font-medium">
                       {getApplicationCategoryLabel(app?.applicationCategory)}
                     </td>
                     <td className="py-3 px-4 text-slate-600">
-                      <span className="font-medium text-slate-900">
+                      <span className="font-medium text-[#0F172A]">
                         {app.currentStageName || "Scrutiny Verification"}
                       </span>
-                      <p className="text-[11px] text-slate-500 truncate max-w-xs mt-0.5">
+                      <p className="text-[11px] text-slate-400 truncate max-w-xs mt-0.5 font-normal">
                         {app.nextActionDescription || "Under processing"}
                       </p>
                     </td>
@@ -358,7 +366,7 @@ function InstitutionDashboardContent() {
                     </td>
                     <td className="py-3 px-4 text-right">
                       <Link href={`/institution/applications/${app.id}`}>
-                        <Button variant="outline" size="sm" className="h-7 text-xs px-2.5">
+                        <Button variant="outline" size="sm" className="h-7 text-xs px-2.5 rounded-[5px] border-[#CBD5E1] hover:border-slate-400 hover:bg-slate-50 text-[#0F172A] font-medium">
                           Details
                         </Button>
                       </Link>
@@ -374,53 +382,53 @@ function InstitutionDashboardContent() {
       {/* Two Column Layout: Compliance Deadlines & Document Expiry Warnings */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Compliance and Undertakings */}
-        <Card className="border border-slate-200/90 shadow-2xs bg-white">
-          <CardHeader className="p-4 border-b border-slate-100 flex flex-row items-center justify-between">
+        <Card className="rounded-[8px] border border-[#E2E8F0] bg-white/90 backdrop-blur-xs shadow-xs">
+          <CardHeader className="p-4 border-b border-[#E2E8F0] flex flex-row items-center justify-between bg-slate-50/50">
             <div>
-              <CardTitle className="text-sm font-semibold text-slate-900 flex items-center gap-2">
-                <CalendarClock className="h-4 w-4 text-blue-600" />
+              <CardTitle className="text-base font-bold text-[#0F172A] flex items-center gap-2 tracking-tight">
+                <CalendarClock className="h-4 w-4 text-[#1E40AF]" />
                 Upcoming Compliance Deadlines
               </CardTitle>
-              <p className="text-xs text-slate-500 mt-0.5">
+              <p className="text-xs text-slate-500 mt-0.5 font-normal">
                 Statutory undertakings and conditions tied to your approvals
               </p>
             </div>
             <Link href="/institution/compliance">
-              <Button variant="ghost" size="sm" className="text-xs text-blue-600">
+              <Button variant="ghost" size="sm" className="text-xs text-[#1E40AF] hover:text-[#1E3A8A] font-semibold">
                 Manage
               </Button>
             </Link>
           </CardHeader>
           <CardContent className="p-4 space-y-3">
             {undertakings.length === 0 ? (
-              <p className="text-xs text-slate-400 py-3 text-center">No pending statutory undertakings</p>
+              <p className="text-xs text-slate-400 py-3 text-center font-normal">No pending statutory undertakings</p>
             ) : (
               undertakings.map((ut) => (
                 <div
                   key={ut.id}
-                  className="flex items-start justify-between gap-3 p-3 rounded-lg border border-slate-200 bg-slate-50/50 hover:bg-slate-50 transition"
+                  className="flex items-start justify-between gap-3 p-3 rounded-[6px] border border-[#E2E8F0] bg-slate-50/60 hover:bg-white transition-all duration-150"
                 >
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-semibold text-slate-900 truncate">
+                      <span className="text-xs font-semibold text-[#0F172A] truncate">
                         {ut.condition}
                       </span>
                       <span
-                        className={`text-[10px] font-semibold px-2 py-0.5 rounded ${
+                        className={`text-[10px] font-semibold px-2 py-0.5 rounded-[4px] ${
                           ut.status === "submitted"
-                            ? "bg-blue-100 text-blue-800"
+                            ? "bg-blue-50 text-[#1E40AF] border border-blue-200"
                             : ut.status === "verified"
-                            ? "bg-emerald-100 text-emerald-800"
-                            : "bg-amber-100 text-amber-800"
+                            ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
+                            : "bg-red-50 text-red-700 border border-red-200"
                         }`}
                       >
                         {ut.status.toUpperCase()}
                       </span>
                     </div>
-                    <p className="mt-1 text-[11px] text-slate-600 line-clamp-2">
+                    <p className="mt-1 text-[11px] text-slate-500 line-clamp-2 font-normal">
                       {ut.description}
                     </p>
-                    <div className="mt-2 flex items-center gap-3 text-[11px] text-slate-500">
+                    <div className="mt-2 flex items-center gap-3 text-[11px] text-slate-400 font-normal">
                       <span>Due: {new Date(ut.dueAt).toLocaleDateString("en-IN")}</span>
                       <span>•</span>
                       <SlaCountdown dueAt={ut.dueAt} />
@@ -433,26 +441,26 @@ function InstitutionDashboardContent() {
         </Card>
 
         {/* Document Validity Watch */}
-        <Card className="border border-slate-200/90 shadow-2xs bg-white">
-          <CardHeader className="p-4 border-b border-slate-100 flex flex-row items-center justify-between">
+        <Card className="rounded-[8px] border border-[#E2E8F0] bg-white/90 backdrop-blur-xs shadow-xs">
+          <CardHeader className="p-4 border-b border-[#E2E8F0] flex flex-row items-center justify-between bg-slate-50/50">
             <div>
-              <CardTitle className="text-sm font-semibold text-slate-900 flex items-center gap-2">
-                <FolderLock className="h-4 w-4 text-purple-600" />
+              <CardTitle className="text-base font-bold text-[#0F172A] flex items-center gap-2 tracking-tight">
+                <FolderLock className="h-4 w-4 text-[#1E40AF]" />
                 Document Expiry & Audit Watch
               </CardTitle>
-              <p className="text-xs text-slate-500 mt-0.5">
+              <p className="text-xs text-slate-500 mt-0.5 font-normal">
                 Statutory certificates requiring periodic renewal
               </p>
             </div>
             <Link href="/institution/documents">
-              <Button variant="ghost" size="sm" className="text-xs text-blue-600">
+              <Button variant="ghost" size="sm" className="text-xs text-[#1E40AF] hover:text-[#1E3A8A] font-semibold">
                 Document Vault
               </Button>
             </Link>
           </CardHeader>
           <CardContent className="p-4 space-y-3">
             {docs.length === 0 ? (
-              <p className="text-xs text-slate-400 py-3 text-center">No documents in vault</p>
+              <p className="text-xs text-slate-400 py-3 text-center font-normal">No documents in vault</p>
             ) : (
               docs.slice(0, 4).map((doc) => {
                 const isExpiringSoon =
@@ -461,29 +469,29 @@ function InstitutionDashboardContent() {
                 return (
                   <div
                     key={doc.id}
-                    className="flex items-center justify-between p-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 transition"
+                    className="flex items-center justify-between p-2.5 rounded-[6px] border border-[#E2E8F0] bg-slate-50/60 hover:bg-white transition-all duration-150"
                   >
                     <div className="min-w-0 flex-1">
-                      <p className="text-xs font-semibold text-slate-900 truncate">
+                      <p className="text-xs font-semibold text-[#0F172A] truncate">
                         {doc.documentType}
                       </p>
-                      <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                      <p className="text-[11px] text-slate-500 truncate mt-0.5 font-normal">
                         {doc.originalFilename}
                       </p>
                     </div>
                     <div className="text-right shrink-0 pl-3">
                       {doc.expiryDate ? (
                         <span
-                          className={`text-[10px] font-semibold px-2 py-0.5 rounded ${
+                          className={`text-[10px] font-semibold px-2 py-0.5 rounded-[4px] ${
                             isExpiringSoon
-                              ? "bg-rose-100 text-rose-800"
-                              : "bg-emerald-100 text-emerald-800"
+                              ? "bg-red-50 text-red-700 border border-red-200"
+                              : "bg-emerald-50 text-emerald-800 border border-emerald-200"
                           }`}
                         >
                           Exp: {new Date(doc.expiryDate).toLocaleDateString("en-IN", { month: "short", year: "numeric" })}
                         </span>
                       ) : (
-                        <span className="text-[10px] text-slate-400">Permanent</span>
+                        <span className="text-[10px] text-slate-500 font-normal">Permanent</span>
                       )}
                     </div>
                   </div>

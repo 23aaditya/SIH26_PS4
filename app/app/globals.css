@@ -1,108 +1,215 @@
 @import "tailwindcss";
 
 :root {
-  --background: #fcfcfd;
-  --foreground: #0a2540;
-  --stripe-navy: #0a2540;
-  --stripe-blue: #635bff;
-  --stripe-dark-blue: #0048e5;
-  --stripe-cyan: #00d4ff;
+  --background: #f4f6fb;
+  --foreground: #0f172a;
+  --app-navy: #0f172a;
+  --app-dark-bg: #091326;
+  --app-blue: #1e40af;
+  --app-blue-hover: #1e3a8a;
+  --app-blue-action: #2563eb;
+  --app-blue-tint: #dbeafe;
+  --app-blue-soft: #eff6ff;
+  --app-card-border: #e2e8f0;
+  --app-heading-pill: #e0e7ff;
+  --app-urgent-red: #dc2626;
+  --app-urgent-bg: #fef2f2;
+  --app-urgent-border: #fca5a5;
+  --app-important-amber: #b45309;
+  --app-important-bg: #fffbeb;
+  --app-important-border: #fde68a;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-inter);
+  --color-app-navy: var(--app-navy);
+  --color-app-blue: var(--app-blue);
+  --color-app-blue-hover: var(--app-blue-hover);
+  --color-app-blue-action: var(--app-blue-action);
+  --color-app-blue-tint: var(--app-blue-tint);
+  --color-app-blue-soft: var(--app-blue-soft);
+  --color-app-border: var(--app-card-border);
+  --color-app-urgent: var(--app-urgent-red);
+  --font-sans: var(--font-inter), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: var(--font-inter), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
 body {
-  background: var(--background);
+  background-color: var(--background);
   color: var(--foreground);
-  font-family: var(--font-inter), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--font-inter), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  margin: 0;
+  padding: 0;
 }
 
-/* Stripe-inspired mesh gradients */
-.stripe-mesh-hero {
-  background-color: #ffffff;
+/* Force normal formal font globally across all text, inputs, buttons, and mono classes */
+*,
+.font-mono,
+code,
+kbd,
+samp,
+pre,
+input,
+button,
+select,
+textarea {
+  font-family: var(--font-inter), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
+}
+
+/* Strong Executive Typographic Hierarchy */
+.stripe-h1 {
+  font-family: var(--font-inter), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: clamp(1.85rem, 3.5vw, 2.35rem);
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.025em;
+  color: var(--app-navy);
+}
+
+.stripe-h2 {
+  font-family: var(--font-inter), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: clamp(1.4rem, 2.5vw, 1.75rem);
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+  color: var(--app-navy);
+}
+
+.stripe-h3 {
+  font-family: var(--font-inter), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: clamp(1.15rem, 2vw, 1.35rem);
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.015em;
+  color: var(--app-navy);
+}
+
+.stripe-h4 {
+  font-family: var(--font-inter), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+  color: var(--app-navy);
+}
+
+/* Dynamic Interactive Mouse-Glow Blue Grid (Refined subtle blue ambient glow, calibrated -40% intensity) */
+.interactive-blue-grid {
+  background-color: #f4f6fb;
+  background-image:
+    radial-gradient(
+      525px circle at var(--mouse-x, 50%) var(--mouse-y, 50%),
+      rgba(96, 165, 250, 0.17) 0%,
+      rgba(37, 99, 235, 0.125) 22%,
+      rgba(29, 78, 216, 0.085) 45%,
+      rgba(30, 58, 138, 0.042) 68%,
+      rgba(15, 23, 42, 0.015) 85%,
+      transparent 100%
+    ),
+    linear-gradient(to right, rgba(15, 23, 42, 0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(15, 23, 42, 0.04) 1px, transparent 1px);
+  background-size: 100% 100%, 28px 28px, 28px 28px;
+}
+
+.stripe-canvas {
+  background-color: #f4f6fb;
+  background-image:
+    radial-gradient(at 15% 15%, rgba(30, 64, 175, 0.04) 0px, transparent 45%),
+    radial-gradient(at 85% 10%, rgba(37, 99, 235, 0.045) 0px, transparent 40%),
+    radial-gradient(at 50% 90%, rgba(15, 23, 42, 0.03) 0px, transparent 50%);
+}
+
+.stripe-grid-bg {
   background-image: 
-    radial-gradient(at 10% 10%, rgba(99, 91, 255, 0.09) 0px, transparent 55%),
-    radial-gradient(at 90% 15%, rgba(0, 212, 255, 0.11) 0px, transparent 55%),
-    radial-gradient(at 50% 60%, rgba(244, 114, 182, 0.05) 0px, transparent 65%),
-    radial-gradient(at 80% 90%, rgba(99, 91, 255, 0.07) 0px, transparent 55%);
+    linear-gradient(to right, rgba(15, 23, 42, 0.035) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(15, 23, 42, 0.035) 1px, transparent 1px);
+  background-size: 28px 28px;
 }
 
-.stripe-card-glow {
-  box-shadow: 
-    0 0 0 1px rgba(10, 37, 64, 0.07),
-    0 1px 1px rgba(10, 37, 64, 0.04),
-    0 10px 24px -4px rgba(10, 37, 64, 0.05),
-    0 32px 64px -12px rgba(10, 37, 64, 0.08);
+/* Distinct Tonal Floating Cards: Pure White on Slate Canvas with Subtle Shadow */
+.stripe-card {
+  background-color: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  box-shadow: 0 1px 3px 0 rgba(15, 23, 42, 0.04), 0 1px 2px -1px rgba(15, 23, 42, 0.04);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.stripe-card:hover {
+  border-color: #94a3b8;
+  box-shadow: 0 4px 12px 0 rgba(15, 23, 42, 0.06);
 }
 
 .stripe-card-interactive {
-  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-  box-shadow: 
-    0 0 0 1px rgba(10, 37, 64, 0.06),
-    0 2px 6px rgba(10, 37, 64, 0.04);
+  background-color: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  box-shadow: 0 1px 3px 0 rgba(15, 23, 42, 0.04);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .stripe-card-interactive:hover {
-  transform: translateY(-3px);
-  box-shadow: 
-    0 0 0 1px rgba(99, 91, 255, 0.3),
-    0 12px 32px -4px rgba(10, 37, 64, 0.09),
-    0 20px 40px -8px rgba(99, 91, 255, 0.12);
+  border-color: #2563eb;
+  transform: translateY(-1.5px);
+  box-shadow: 0 6px 16px -2px rgba(15, 23, 42, 0.08);
+}
+
+/* Executive Link Hover */
+.stripe-link {
+  color: #1e40af;
+  transition: color 0.18s ease;
+}
+
+.stripe-link:hover {
+  color: #1e3a8a;
+  text-decoration: underline;
 }
 
 /* Micro-animations */
-@keyframes floatSlow {
+@keyframes floatSubtle {
   0%, 100% {
     transform: translateY(0px);
   }
   50% {
-    transform: translateY(-8px);
+    transform: translateY(-3px);
   }
 }
 
-@keyframes floatGentle {
+@keyframes pulseSubtle {
   0%, 100% {
-    transform: translateY(0px);
-  }
-  50% {
-    transform: translateY(-4px);
-  }
-}
-
-@keyframes pulseGlow {
-  0%, 100% {
-    opacity: 0.6;
+    opacity: 1;
     transform: scale(1);
   }
   50% {
-    opacity: 0.9;
-    transform: scale(1.05);
+    opacity: 0.55;
+    transform: scale(1.08);
   }
 }
 
-.animate-float-slow {
-  animation: floatSlow 6s ease-in-out infinite;
+@keyframes shimmerGlint {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
 }
 
-.animate-float-gentle {
-  animation: floatGentle 4s ease-in-out infinite;
+.animate-pulse-subtle {
+  animation: pulseSubtle 2.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
-.animate-glow-pulse {
-  animation: pulseGlow 4s ease-in-out infinite;
+.animate-float-subtle {
+  animation: floatSubtle 4s ease-in-out infinite;
 }
 
-/* Custom scrollbar */
+/* Custom crisp scrollbar */
 ::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -111,15 +218,15 @@ body {
 
 ::-webkit-scrollbar-thumb {
   background: #cbd5e1;
-  border-radius: 9999px;
+  border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
 }
 
-/* Focus styles */
+/* Focus styles matching corporate blue #1E40AF */
 *:focus-visible {
-  outline: 2px solid #635bff;
+  outline: 2px solid #1e40af;
   outline-offset: 2px;
 }

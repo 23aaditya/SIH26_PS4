@@ -19,7 +19,9 @@ import {
   Mail,
   CheckCircle2,
   AlertCircle,
+  ArrowRight,
 } from "lucide-react";
+import { AicteLogo } from "@/components/ui/AicteLogo";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -38,7 +40,7 @@ export default function LoginPage() {
 
   // Forgot Password Modal State
   const [showForgotPassword, setShowForgotPassword] = useState(false);
-  const [forgotStep, setForgotStep] = useState(1); // 1 = Request OTP, 2 = Enter OTP & Set Password
+  const [forgotStep, setForgotStep] = useState(1);
   const [forgotEmail, setForgotEmail] = useState("");
   const [forgotOtp, setForgotOtp] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -76,7 +78,6 @@ export default function LoginPage() {
           throw new Error(data.error || "Authentication failed");
         }
 
-        // Store user ID, email, and session info in localStorage
         if (typeof window !== "undefined") {
           localStorage.setItem("aicte_active_demo_user_id", data.user.uid || data.user.id);
           localStorage.setItem("aicte_institute_email", data.user.email);
@@ -86,7 +87,6 @@ export default function LoginPage() {
         await refreshProfile();
         router.push("/institution/dashboard");
       } else {
-        // AICTE Member Login
         const res = await fetch(`${API_BASE}/auth/aicte/login`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -195,92 +195,106 @@ export default function LoginPage() {
     }
   };
 
+  const handleMouseMove = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    e.currentTarget.style.setProperty("--mouse-x", `${x}px`);
+    e.currentTarget.style.setProperty("--mouse-y", `${y}px`);
+  };
+
   return (
-    <div className="min-h-screen flex flex-col justify-between bg-[#f8fafc] p-4 sm:p-6 text-[#0a2540]">
-      {/* Top Header */}
-      <div className="max-w-md w-full mx-auto flex items-center justify-start pb-4">
+    <div
+      onMouseMove={handleMouseMove}
+      className="min-h-screen flex flex-col justify-between interactive-blue-grid p-4 sm:p-6 text-[#0F172A] transition-all"
+    >
+      {/* Top Header Navigation */}
+      <div className="max-w-md w-full mx-auto flex items-center justify-between pb-4">
         <Link
           href="/"
-          className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-[#0a2540] transition"
+          className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-[#1E40AF] transition-all duration-150"
         >
           <ArrowLeft className="h-3.5 w-3.5" /> Back to AICTE Portal Home
         </Link>
+        <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-blue-50 text-[10px] text-[#1E40AF] font-semibold border border-blue-200">
+          <span className="h-1.5 w-1.5 rounded-full bg-[#1E40AF] animate-pulse" />
+          <span>APH 2026-27</span>
+        </div>
       </div>
 
       <div className="w-full max-w-md mx-auto my-auto">
-        {/* Main Card */}
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8 flex flex-col justify-between">
+        {/* Main Floating Card with Tonal Depth */}
+        <div className="bg-white rounded-xl border border-slate-200/90 p-6 sm:p-8 shadow-sm">
           <div>
-            <div className="flex items-center gap-3 mb-5">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#0a2540] text-white shadow-xs">
-                <ShieldCheck className="h-6 w-6 text-[#00d4ff]" />
-              </div>
+            <div className="flex items-center gap-3 mb-6">
+              <AicteLogo variant="mark" size={48} />
               <div>
-                <h1 className="text-sm font-bold text-[#0a2540] tracking-tight uppercase">
+                <span className="text-[10px] font-bold tracking-wider text-slate-400 uppercase block">
+                  Approval Workflow Automation System
+                </span>
+                <span className="text-sm font-bold text-[#0F172A]">
                   AICTE Unified Regulatory Gateway
-                </h1>
-                <p className="text-[11px] text-slate-500 font-medium">
-                  Approval Process & Accreditation Platform
-                </p>
+                </span>
               </div>
             </div>
 
-            {/* Profile Selection Tabs (Two Profiles Only) */}
-            <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-100 rounded-xl mb-6">
+            {/* Profile Selection Tabs */}
+            <div className="grid grid-cols-2 gap-1 p-1 bg-slate-100 rounded-lg border border-slate-200 mb-6">
               <button
                 type="button"
                 onClick={() => handleTabChange("institution")}
-                className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition-all ${
+                className={`flex items-center justify-center gap-2 py-2 px-3 rounded-[6px] text-xs transition-all duration-150 ${
                   activeTab === "institution"
-                    ? "bg-white text-[#0a2540] shadow-xs"
-                    : "text-slate-500 hover:text-slate-800"
+                    ? "bg-white text-[#0F172A] font-semibold shadow-xs border border-slate-200"
+                    : "text-slate-500 hover:text-[#0F172A] border border-transparent"
                 }`}
               >
-                <Building2 className="h-3.5 w-3.5 text-blue-600" />
-                Institute User
+                <Building2 className={`h-3.5 w-3.5 ${activeTab === "institution" ? "text-[#1E40AF]" : "text-slate-400"}`} />
+                <span>Institute User</span>
               </button>
               <button
                 type="button"
                 onClick={() => handleTabChange("aicte")}
-                className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition-all ${
+                className={`flex items-center justify-center gap-2 py-2 px-3 rounded-[6px] text-xs transition-all duration-150 ${
                   activeTab === "aicte"
-                    ? "bg-white text-[#0a2540] shadow-xs"
-                    : "text-slate-500 hover:text-slate-800"
+                    ? "bg-white text-[#0F172A] font-semibold shadow-xs border border-slate-200"
+                    : "text-slate-500 hover:text-[#0F172A] border border-transparent"
                 }`}
               >
-                <Users className="h-3.5 w-3.5 text-indigo-600" />
-                AICTE Member
+                <Users className={`h-3.5 w-3.5 ${activeTab === "aicte" ? "text-[#1E40AF]" : "text-slate-400"}`} />
+                <span>AICTE Member</span>
               </button>
             </div>
 
-            <div className="mb-4">
-              <h2 className="text-lg font-bold text-[#0a2540] tracking-tight">
-                {activeTab === "institution" ? "Institute Portal Sign In" : "AICTE Member & Official Sign In"}
-              </h2>
-              <p className="text-xs text-slate-500 mt-0.5">
+            {/* Display Headline */}
+            <div className="mb-5">
+              <h1 className="text-2xl font-bold text-[#0F172A] tracking-tight leading-snug">
+                {activeTab === "institution" ? "Sign in as Institution" : "Sign in as AICTE Official"}
+              </h1>
+              <p className="text-xs text-slate-600 mt-1 font-normal leading-relaxed">
                 {activeTab === "institution"
                   ? "Access institutional applications, compliance submissions, and deficiency responses."
-                  : "Access scrutiny, inspection, hearing queues, and authority dashboards."}
+                  : "Access regulatory scrutiny, inspection schedules, hearing queues, and authority boards."}
               </p>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4">
               {successBanner && (
-                <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-2.5 text-xs text-emerald-800 flex items-center gap-2">
+                <div className="rounded-[6px] bg-emerald-50 border border-emerald-200/80 p-2.5 text-xs text-emerald-800 flex items-center gap-2">
                   <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
-                  {successBanner}
+                  <span>{successBanner}</span>
                 </div>
               )}
 
               {error && (
-                <div className="rounded-lg bg-rose-50 border border-rose-200 p-2.5 text-xs text-rose-700 flex items-start gap-2">
+                <div className="rounded-[6px] bg-rose-50 border border-rose-200 p-2.5 text-xs text-rose-700 flex items-start gap-2">
                   <AlertCircle className="h-4 w-4 text-rose-600 shrink-0 mt-0.5" />
                   <div>{error}</div>
                 </div>
               )}
 
-              <div className="space-y-1">
-                <Label htmlFor="identifier" className="text-xs font-medium text-slate-700">
+              <div className="space-y-1.5">
+                <Label htmlFor="identifier" className="text-xs font-medium text-[#0F172A]">
                   {activeTab === "institution" ? "Registered Institutional Email" : "Staff Email or Employee Code"}
                 </Label>
                 <Input
@@ -294,19 +308,19 @@ export default function LoginPage() {
                   value={identifier}
                   onChange={(e) => setIdentifier(e.target.value)}
                   required
-                  className="h-9 text-xs rounded-lg border-slate-200 focus:border-[#635bff] focus:ring-1 focus:ring-[#635bff]"
+                  className="h-10 text-xs rounded-[6px] border-slate-300 focus:border-[#1E40AF]"
                 />
               </div>
 
-              <div className="space-y-1">
+              <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <Label htmlFor="password" className="text-xs font-medium text-slate-700">
+                  <Label htmlFor="password" className="text-xs font-medium text-[#0F172A]">
                     Account Password
                   </Label>
                   <button
                     type="button"
                     onClick={handleOpenForgotPassword}
-                    className="text-[11px] font-semibold text-[#635bff] hover:underline"
+                    className="text-[11px] text-[#1E40AF] hover:text-[#1E3A8A] font-medium transition-all duration-150"
                   >
                     Forgot Password?
                   </button>
@@ -319,12 +333,13 @@ export default function LoginPage() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
-                    className="h-9 text-xs pr-8 rounded-lg border-slate-200 focus:border-[#635bff] focus:ring-1 focus:ring-[#635bff]"
+                    className="h-10 text-xs pr-8 rounded-[6px] border-slate-300 focus:border-[#1E40AF]"
                   />
                   <button
                     type="button"
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-[#0F172A] transition"
                     onClick={() => setShowPassword(!showPassword)}
+                    aria-label="Toggle password visibility"
                   >
                     {showPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                   </button>
@@ -334,33 +349,39 @@ export default function LoginPage() {
               <div className="pt-2">
                 <Button
                   type="submit"
-                  className="w-full h-9 text-xs bg-[#0a2540] hover:bg-[#1a3b5c] text-white rounded-lg font-semibold shadow-xs transition duration-150"
+                  className="w-full h-10 text-xs sm:text-sm font-semibold rounded-[6px] bg-[#1E40AF] hover:bg-[#1E3A8A] text-white shadow-xs transition-all duration-150 flex items-center justify-center gap-2"
                   disabled={isSubmitting}
                 >
                   {isSubmitting ? (
                     <>
-                      <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
-                      Authenticating Credentials...
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      <span>Authenticating Credentials...</span>
                     </>
                   ) : (
-                    `Authenticate as ${activeTab === "institution" ? "Institute User" : "AICTE Member"} →`
+                    <>
+                      <span>Sign in to {activeTab === "institution" ? "Institution Dashboard" : "AICTE Gateway"}</span>
+                      <ArrowRight className="h-3.5 w-3.5" />
+                    </>
                   )}
                 </Button>
               </div>
             </form>
           </div>
 
-          <div className="mt-6 pt-4 border-t border-slate-100 text-xs text-slate-500 text-center">
+          <div className="mt-6 pt-4 border-t border-slate-200 text-xs text-slate-500 text-center">
             {activeTab === "institution" ? (
               <span>
                 New Technical Institute?{" "}
-                <Link href="/register" className="text-[#635bff] hover:underline font-semibold">
-                  Register Portal
+                <Link
+                  href="/register"
+                  className="text-[#1E40AF] hover:text-[#1E3A8A] transition font-semibold"
+                >
+                  Register Portal →
                 </Link>
               </span>
             ) : (
               <span className="text-[11px] text-slate-400">
-                Staff accounts are provisioned via AICTE e-Governance Bureau
+                AICTE Official credentials are provisioned under Ministry e-Governance guidelines
               </span>
             )}
           </div>
@@ -369,18 +390,18 @@ export default function LoginPage() {
 
       {/* Forgot Password Modal (OTP Verification Flow) */}
       {showForgotPassword && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-md w-full p-6 animate-in fade-in zoom-in-95">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <div className="flex items-center gap-2">
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-[8px] border border-slate-200 max-w-md w-full p-6 shadow-lg animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-8 w-8 items-center justify-center rounded-[6px] bg-blue-50 text-[#1E40AF]">
                   <KeyRound className="h-4 w-4" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-slate-900">
-                    {forgotStep === 1 ? "Forgot Password Recovery" : "Enter Verification OTP"}
-                  </h3>
-                  <p className="text-[11px] text-slate-500">
+                  <h2 className="text-sm font-bold text-[#0F172A] tracking-tight">
+                    {forgotStep === 1 ? "Credential Recovery" : "Enter Verification OTP"}
+                  </h2>
+                  <p className="text-[11px] text-slate-500 font-normal">
                     {forgotStep === 1 ? "Dispatches OTP to registered mail" : "Verify OTP and set new password"}
                   </p>
                 </div>
@@ -388,30 +409,30 @@ export default function LoginPage() {
               <button
                 type="button"
                 onClick={() => setShowForgotPassword(false)}
-                className="text-slate-400 hover:text-slate-600"
+                className="text-slate-400 hover:text-[#0F172A] transition"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
 
             {forgotErr && (
-              <div className="mt-3 p-2 bg-rose-50 text-rose-700 text-xs rounded-lg border border-rose-200 flex items-center gap-1.5">
+              <div className="mt-3 p-2 bg-rose-50 text-rose-700 text-xs rounded-[5px] border border-rose-200 flex items-center gap-1.5">
                 <AlertCircle className="h-4 w-4 shrink-0" />
-                {forgotErr}
+                <span>{forgotErr}</span>
               </div>
             )}
 
             {forgotMsg && (
-              <div className="mt-3 p-2 bg-blue-50 text-blue-700 text-xs rounded-lg border border-blue-200 flex items-center gap-1.5">
+              <div className="mt-3 p-2 bg-blue-50 text-[#1E40AF] text-xs rounded-[5px] border border-blue-200 flex items-center gap-1.5">
                 <Mail className="h-4 w-4 shrink-0" />
-                {forgotMsg}
+                <span>{forgotMsg}</span>
               </div>
             )}
 
             {forgotStep === 1 ? (
               <form onSubmit={handleSendOtp} className="mt-4 space-y-3.5 text-xs">
                 <div>
-                  <Label htmlFor="forgotEmail" className="font-medium text-slate-700 block mb-1">
+                  <Label htmlFor="forgotEmail" className="font-medium text-[#0F172A] block mb-1">
                     Registered Email Address
                   </Label>
                   <Input
@@ -421,7 +442,7 @@ export default function LoginPage() {
                     value={forgotEmail}
                     onChange={(e) => setForgotEmail(e.target.value)}
                     placeholder="e.g. principal@institution.edu"
-                    className="h-9 text-xs rounded-lg"
+                    className="h-9 text-xs rounded-[6px]"
                   />
                   <p className="text-[10px] text-slate-400 mt-1">
                     We will send an OTP verification code to this registered address.
@@ -442,7 +463,7 @@ export default function LoginPage() {
                     type="submit"
                     size="sm"
                     disabled={forgotLoading}
-                    className="text-xs bg-[#0a2540] hover:bg-[#1a3b5c] text-white"
+                    className="text-xs bg-[#1E40AF] hover:bg-[#1E3A8A] text-white font-medium"
                   >
                     {forgotLoading ? (
                       <>
@@ -459,7 +480,7 @@ export default function LoginPage() {
               <form onSubmit={handleResetPassword} className="mt-4 space-y-3.5 text-xs">
                 <div>
                   <div className="mb-1">
-                    <Label htmlFor="forgotOtp" className="font-medium text-slate-700">
+                    <Label htmlFor="forgotOtp" className="font-medium text-[#0F172A]">
                       6-Digit OTP Code
                     </Label>
                   </div>
@@ -471,12 +492,12 @@ export default function LoginPage() {
                     value={forgotOtp}
                     onChange={(e) => setForgotOtp(e.target.value)}
                     placeholder="Enter 6-digit OTP"
-                    className="h-9 text-xs rounded-lg font-mono tracking-widest text-center"
+                    className="h-9 text-xs rounded-[6px] font-mono tracking-widest text-center"
                   />
                 </div>
 
                 <div>
-                  <Label htmlFor="newPassword" className="font-medium text-slate-700 block mb-1">
+                  <Label htmlFor="newPassword" className="font-medium text-[#0F172A] block mb-1">
                     New Password
                   </Label>
                   <Input
@@ -487,12 +508,12 @@ export default function LoginPage() {
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     placeholder="At least 6 characters"
-                    className="h-9 text-xs rounded-lg"
+                    className="h-9 text-xs rounded-[6px]"
                   />
                 </div>
 
                 <div>
-                  <Label htmlFor="confirmNewPassword" className="font-medium text-slate-700 block mb-1">
+                  <Label htmlFor="confirmNewPassword" className="font-medium text-[#0F172A] block mb-1">
                     Confirm New Password
                   </Label>
                   <Input
@@ -503,7 +524,7 @@ export default function LoginPage() {
                     value={confirmNewPassword}
                     onChange={(e) => setConfirmNewPassword(e.target.value)}
                     placeholder="Re-enter new password"
-                    className="h-9 text-xs rounded-lg"
+                    className="h-9 text-xs rounded-[6px]"
                   />
                 </div>
 
@@ -511,7 +532,7 @@ export default function LoginPage() {
                   <button
                     type="button"
                     onClick={() => setForgotStep(1)}
-                    className="text-[11px] text-slate-500 hover:text-slate-700 underline"
+                    className="text-[11px] text-slate-500 hover:text-[#1E40AF] transition"
                   >
                     ← Change Email
                   </button>
@@ -530,7 +551,7 @@ export default function LoginPage() {
                       type="submit"
                       size="sm"
                       disabled={forgotLoading}
-                      className="text-xs bg-emerald-700 hover:bg-emerald-800 text-white"
+                      className="text-xs bg-[#1E40AF] hover:bg-[#1E3A8A] text-white font-medium"
                     >
                       {forgotLoading ? (
                         <>
@@ -549,7 +570,8 @@ export default function LoginPage() {
         </div>
       )}
 
-      <div className="py-2 text-center text-[11px] text-slate-400">
+      {/* Footer Note */}
+      <div className="py-2 text-center text-[11px] text-slate-400 font-normal">
         All India Council for Technical Education • Nelson Mandela Marg, Vasant Kunj, New Delhi-110070
       </div>
     </div>

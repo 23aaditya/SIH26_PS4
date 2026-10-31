@@ -253,6 +253,22 @@ export const workflowInstanceService = {
         },
       });
 
+      if (stageInstance.stageKey === "committee") {
+        await tx.reviewReport.create({
+          data: {
+            workflowStageId: stageInstance.id,
+            applicationId,
+            reportType: "SHC_MINUTES",
+            title: "Standing Hearing Committee Proceedings Minutes",
+            content: findings || comments || "Standing Hearing Committee proceeding concluded.",
+            recommendations: outcome === "FAIL" ? "UNFAVORABLE" : outcome === "CONDITIONAL" ? "CONDITIONAL" : "FAVORABLE",
+            outcome: outcome === "FAIL" ? "UNFAVORABLE" : outcome === "CONDITIONAL" ? "CONDITIONAL" : "FAVORABLE",
+            submittedById: actor?.staffId || null,
+            versionHash: `shc_${stageInstance.id}_${Date.now()}`,
+          },
+        });
+      }
+
       await tx.stageActionHistory.create({
         data: {
           stageInstanceId: stageInstance.id,
@@ -309,7 +325,20 @@ export const workflowInstanceService = {
 
       // 4. Find and activate next stage
       const nextStageDef = getStageFromTemplate(template, nextStageKey);
-      const nextStageRecord = wfInstance.stages.find(s => s.stageKey === nextStageKey && s.stageStatus === "NOT_STARTED");
+      let nextStageRecord = wfInstance.stages.find(s => s.stageKey === nextStageKey && s.stageStatus === "NOT_STARTED");
+      if (!nextStageRecord && nextStageDef) {
+        nextStageRecord = await tx.workflowStageInstance.create({
+          data: {
+            workflowInstanceId: wfInstance.id,
+            applicationId,
+            stageKey: nextStageDef.stageKey,
+            stageName: nextStageDef.stageName,
+            stageStatus: "NOT_STARTED",
+            sequenceOrder: nextStageDef.sequenceOrder || 4,
+            assignedCommittee: nextStageDef.assignedCommittee || null,
+          },
+        });
+      }
       const staff = await getPinnedStaff(nextStageKey);
       const deadline = calculateDeadline(nextStageDef?.deadlineDays || 14);
 

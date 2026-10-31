@@ -184,10 +184,10 @@ export function StaffManagementModule({ currentStaff }) {
   ];
 
   return (
-    <Card className="border-2 border-purple-200/90 shadow-sm bg-white overflow-hidden">
-      <CardHeader className="p-4 sm:p-5 bg-gradient-to-r from-purple-50/70 via-indigo-50/40 to-white border-b border-purple-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+    <Card className="border border-slate-200/90 shadow-sm bg-white overflow-hidden">
+      <CardHeader className="p-4 sm:p-5 bg-gradient-to-r from-blue-50/70 via-slate-50/40 to-white border-b border-blue-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-purple-700 text-white shadow-xs">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#1E40AF] text-white shadow-xs">
             <ShieldAlert className="h-5 w-5" />
           </div>
           <div>
@@ -195,7 +195,7 @@ export function StaffManagementModule({ currentStaff }) {
               <CardTitle className="text-sm font-bold text-slate-900">
                 AICTE Staff Directory & RBAC Authority Management
               </CardTitle>
-              <span className="text-[10px] font-bold uppercase tracking-wider bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full border border-purple-200">
+              <span className="text-[10px] font-bold uppercase tracking-wider bg-blue-100 text-[#1E40AF] px-2 py-0.5 rounded-full border border-blue-200">
                 Super Admin Console
               </span>
             </div>
@@ -213,7 +213,7 @@ export function StaffManagementModule({ currentStaff }) {
               setShowAuditLogs(!showAuditLogs);
               if (!showAuditLogs) loadAuditLogs();
             }}
-            className="text-xs border-purple-200 text-purple-700 hover:bg-purple-50"
+            className="text-xs border-blue-200 text-[#1E40AF] hover:bg-blue-50"
           >
             <History className="h-3.5 w-3.5 mr-1" />
             {showAuditLogs ? "Hide Audit Log" : "View Audit History"}
@@ -226,7 +226,7 @@ export function StaffManagementModule({ currentStaff }) {
         <div className="p-4 bg-slate-50 border-b border-slate-200">
           <div className="flex items-center justify-between mb-3">
             <h4 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-              <Clock className="h-3.5 w-3.5 text-purple-600" />
+              <Clock className="h-3.5 w-3.5 text-[#1E40AF]" />
               Platform Role & Committee Audit Trail (Immutable Log)
             </h4>
             <span className="text-[11px] font-mono text-slate-400">
@@ -246,7 +246,7 @@ export function StaffManagementModule({ currentStaff }) {
                   className="p-2.5 rounded-lg border border-slate-200 bg-white text-xs flex items-center justify-between gap-3"
                 >
                   <div>
-                    <span className="font-bold text-purple-700 uppercase tracking-wider text-[10px] bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200 mr-2">
+                    <span className="font-bold text-[#1E40AF] uppercase tracking-wider text-[10px] bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200 mr-2">
                       {log.actionType}
                     </span>
                     <span className="text-slate-700 font-medium">Target: {log.target}</span>
@@ -356,9 +356,9 @@ export function StaffManagementModule({ currentStaff }) {
                           key={r}
                           className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${
                             r === "SUPER_ADMIN"
-                              ? "bg-purple-100 text-purple-700 border-purple-200"
+                              ? "bg-blue-100 text-[#1E40AF] border-blue-200"
                               : r === "GOVERNANCE_AUTHORITY"
-                              ? "bg-blue-100 text-blue-700 border-blue-200"
+                              ? "bg-slate-100 text-slate-800 border-slate-200"
                               : "bg-slate-100 text-slate-700 border-slate-200"
                           }`}
                         >
@@ -388,7 +388,7 @@ export function StaffManagementModule({ currentStaff }) {
                       size="sm"
                       variant="outline"
                       onClick={() => handleOpenEdit(staff)}
-                      className="h-7 text-xs border-purple-200 text-purple-700 hover:bg-purple-50"
+                      className="h-7 text-xs border-blue-200 text-[#1E40AF] hover:bg-blue-50"
                     >
                       <Edit2 className="h-3 w-3 mr-1" />
                       Manage Roles
@@ -476,7 +476,7 @@ export function StaffManagementModule({ currentStaff }) {
                         key={r.code}
                         className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition ${
                           isChecked
-                            ? "border-purple-300 bg-purple-50/50 text-purple-900 font-semibold"
+                            ? "border-blue-300 bg-blue-50/50 text-blue-900 font-semibold"
                             : "border-slate-200 text-slate-600 hover:bg-slate-50"
                         }`}
                       >
@@ -490,7 +490,7 @@ export function StaffManagementModule({ currentStaff }) {
                               setSelectedRoles(selectedRoles.filter((c) => c !== r.code));
                             }
                           }}
-                          className="rounded border-slate-300 text-purple-600"
+                          className="rounded border-slate-300 text-[#1E40AF]"
                         />
                         <span className="text-[11px]">{r.label}</span>
                       </label>
@@ -569,7 +569,7 @@ export function StaffManagementModule({ currentStaff }) {
                 size="sm"
                 onClick={handleSaveRolesAndCommittees}
                 disabled={saving}
-                className="text-xs bg-purple-700 hover:bg-purple-800 text-white shadow-xs"
+                className="text-xs bg-[#1E40AF] hover:bg-[#1E3A8A] text-white shadow-xs"
               >
                 {saving ? "Saving Changes..." : "Commit Authority Changes"}
               </Button>

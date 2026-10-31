@@ -10,7 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { ShieldCheck, Loader2, Eye, EyeOff, ArrowLeft } from "lucide-react";
+import { ShieldCheck, Loader2, Eye, EyeOff, ArrowLeft, ArrowRight } from "lucide-react";
+import { AicteLogo } from "@/components/ui/AicteLogo";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -52,49 +53,64 @@ export default function RegisterPage() {
     }
   };
 
+  const handleMouseMove = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    e.currentTarget.style.setProperty("--mouse-x", `${x}px`);
+    e.currentTarget.style.setProperty("--mouse-y", `${y}px`);
+  };
+
   return (
-    <div className="min-h-screen flex flex-col justify-between bg-[#f8fafc] p-4 sm:p-6 text-[#0a2540]">
+    <div
+      onMouseMove={handleMouseMove}
+      className="min-h-screen flex flex-col justify-between interactive-blue-grid p-4 sm:p-6 text-[#0F172A] transition-all"
+    >
       {/* Top Header */}
-      <div className="max-w-md w-full mx-auto flex items-center justify-start pb-4">
+      <div className="max-w-md w-full mx-auto flex items-center justify-between pb-4">
         <Link
           href="/"
-          className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-[#0a2540] transition"
+          className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-[#1E40AF] transition-all duration-150"
         >
           <ArrowLeft className="h-3.5 w-3.5" /> Back to AICTE Portal Home
         </Link>
+        <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-blue-50 text-[10px] text-[#1E40AF] font-semibold border border-blue-200">
+          <span className="h-1.5 w-1.5 rounded-full bg-[#1E40AF] animate-pulse" />
+          <span>APH 2026-27</span>
+        </div>
       </div>
 
       <div className="w-full max-w-md mx-auto my-auto">
-        <Card className="shadow-sm border border-slate-200 bg-white rounded-2xl">
-          <CardHeader className="text-center pb-2">
-            <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-slate-900 text-white shadow-xs">
-              <ShieldCheck className="h-5 w-5 text-blue-400" />
+        <Card className="rounded-xl border border-slate-200/90 bg-white shadow-sm p-6 sm:p-8">
+          <CardHeader className="p-0 text-center pb-5">
+            <div className="mx-auto mb-3 flex justify-center">
+              <AicteLogo variant="mark" size={50} />
             </div>
-            <CardTitle className="text-lg font-bold text-slate-900">
+            <CardTitle className="text-2xl font-bold text-[#0F172A] tracking-tight">
               Register Technical Institution
             </CardTitle>
-            <CardDescription className="text-xs text-slate-500">
-              Create institutional credentials for AICTE Approval Automation System
+            <CardDescription className="text-xs text-slate-500 font-normal mt-1 leading-relaxed">
+              Create institutional credentials for statutory approval processing
             </CardDescription>
           </CardHeader>
 
           <form onSubmit={handleSubmit(onSubmit)}>
-            <CardContent className="space-y-3.5">
+            <CardContent className="p-0 space-y-3.5">
               {error && (
-                <div className="rounded-md bg-rose-50 border border-rose-200 p-2 text-xs text-rose-700">
+                <div className="rounded-[6px] bg-rose-50 border border-rose-200 p-2.5 text-xs text-rose-700">
                   {error}
                 </div>
               )}
 
               <div className="space-y-1">
-                <Label htmlFor="displayName" className="text-xs font-medium text-slate-700">
-                  Full Name / Principal / Dean
+                <Label htmlFor="displayName" className="text-xs font-normal text-[#061B31]">
+                  Principal / Dean Full Name
                 </Label>
                 <Input
                   id="displayName"
                   placeholder="e.g. Dr. S. K. Sharma"
                   autoComplete="name"
-                  className="h-8 text-xs rounded-lg"
+                  className="h-10 text-xs rounded-[6px]"
                   {...register("displayName")}
                 />
                 {errors.displayName && (
@@ -103,15 +119,15 @@ export default function RegisterPage() {
               </div>
 
               <div className="space-y-1">
-                <Label htmlFor="email" className="text-xs font-medium text-slate-700">
-                  Institutional Email
+                <Label htmlFor="email" className="text-xs font-normal text-[#061B31]">
+                  Registered Institutional Email
                 </Label>
                 <Input
                   id="email"
                   type="email"
                   placeholder="principal@institution.edu"
                   autoComplete="email"
-                  className="h-8 text-xs rounded-lg"
+                  className="h-10 text-xs rounded-[6px]"
                   {...register("email")}
                 />
                 {errors.email && (
@@ -120,7 +136,7 @@ export default function RegisterPage() {
               </div>
 
               <div className="space-y-1">
-                <Label htmlFor="password" className="text-xs font-medium text-slate-700">
+                <Label htmlFor="password" className="text-xs font-normal text-[#061B31]">
                   Password
                 </Label>
                 <div className="relative">
@@ -129,13 +145,14 @@ export default function RegisterPage() {
                     type={showPassword ? "text" : "password"}
                     placeholder="At least 6 characters"
                     autoComplete="new-password"
-                    className="h-8 text-xs pr-8 rounded-lg"
+                    className="h-10 text-xs pr-8 rounded-[6px]"
                     {...register("password")}
                   />
                   <button
                     type="button"
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-[#061B31] transition"
                     onClick={() => setShowPassword(!showPassword)}
+                    aria-label="Toggle password visibility"
                   >
                     {showPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                   </button>
@@ -146,7 +163,7 @@ export default function RegisterPage() {
               </div>
 
               <div className="space-y-1">
-                <Label htmlFor="confirmPassword" className="text-xs font-medium text-slate-700">
+                <Label htmlFor="confirmPassword" className="text-xs font-normal text-[#061B31]">
                   Confirm Password
                 </Label>
                 <Input
@@ -154,7 +171,7 @@ export default function RegisterPage() {
                   type="password"
                   placeholder="Repeat password"
                   autoComplete="new-password"
-                  className="h-8 text-xs rounded-lg"
+                  className="h-10 text-xs rounded-[6px]"
                   {...register("confirmPassword")}
                 />
                 {errors.confirmPassword && (
@@ -162,31 +179,37 @@ export default function RegisterPage() {
                 )}
               </div>
 
-              <div className="rounded-md bg-slate-50 border border-slate-200 p-2.5 text-[11px] text-slate-600">
-                Registration assigns the <strong>Institution Role</strong>. AICTE official roles are designated by Central Bureau administrators.
+              <div className="rounded-[6px] bg-[#F8FAFD] border border-[#E5EDF5] p-2.5 text-[11px] text-[#061B31]/70 leading-relaxed">
+                Registration provisions an <strong>Institution User Profile</strong>. Official bureau credentials require AICTE Central Administration authorization.
               </div>
             </CardContent>
 
-            <CardFooter className="flex flex-col gap-3 pt-2">
+            <CardFooter className="p-0 flex flex-col gap-3 pt-5">
               <Button
                 type="submit"
-                className="w-full h-8 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
+                className="w-full h-10 text-xs sm:text-sm font-semibold bg-[#1E40AF] hover:bg-[#1E3A8A] text-white rounded-[6px] shadow-xs transition-all duration-150 flex items-center justify-center gap-2"
                 disabled={isSubmitting}
               >
                 {isSubmitting ? (
                   <>
-                    <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
-                    Creating account...
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <span>Creating account...</span>
                   </>
                 ) : (
-                  "Create Institution Account"
+                  <>
+                    <span>Create Institution Account</span>
+                    <ArrowRight className="h-3.5 w-3.5" />
+                  </>
                 )}
               </Button>
 
-              <p className="text-xs text-slate-500 text-center">
+              <p className="text-xs text-slate-500 text-center font-normal">
                 Already registered?{" "}
-                <Link href="/login" className="text-blue-600 hover:underline font-semibold">
-                  Sign in
+                <Link
+                  href="/login"
+                  className="text-[#1E40AF] hover:text-[#1E3A8A] transition font-semibold"
+                >
+                  Sign in →
                 </Link>
               </p>
             </CardFooter>
@@ -194,7 +217,7 @@ export default function RegisterPage() {
         </Card>
       </div>
 
-      <div className="py-2 text-center text-[11px] text-slate-400">
+      <div className="py-2 text-center text-[11px] text-slate-400 font-normal">
         All India Council for Technical Education • Nelson Mandela Marg, Vasant Kunj, New Delhi-110070
       </div>
     </div>

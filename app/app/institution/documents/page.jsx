@@ -80,7 +80,7 @@ function DocumentsContent() {
                     <td className="py-3 px-4 font-semibold text-slate-900">
                       {doc.documentType}
                     </td>
-                    <td className="py-3 px-4 font-mono text-[11px] text-slate-600">
+                    <td className="py-3 px-4 font-normal text-xs text-slate-700">
                       {doc.originalFilename}
                     </td>
                     <td className="py-3 px-4">

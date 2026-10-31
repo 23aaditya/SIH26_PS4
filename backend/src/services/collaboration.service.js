@@ -62,13 +62,14 @@ export const collaborationService = {
       delegatedByMeCount,
       unreadMessagesCount,
       completedCount,
+      processedCount,
     ] = await Promise.all([
-      // 1. Assigned to me and active
+      // 1. Assigned to me and active (excluding waiting on institute)
       prisma.application.count({
         where: {
           AND: [
             personalAssignmentClause,
-            { status: { notIn: ["approved", "rejected", "closed", "withdrawn"] } },
+            { status: { notIn: ["approved", "rejected", "closed", "withdrawn", "awaiting_institution", "deficiency_raised"] } },
           ],
         },
       }),
@@ -153,6 +154,26 @@ export const collaborationService = {
           ],
         },
       }),
+      // 9. Processed / Action taken (awaiting institute rejoinder or advanced/completed)
+      prisma.application.count({
+        where: {
+          AND: [
+            {
+              OR: [
+                { assignedUserId: { in: staffIds } },
+                {
+                  workflowInstance: {
+                    stages: {
+                      some: { assignedStaffId: staff.id },
+                    },
+                  },
+                },
+              ],
+            },
+            { status: { in: ["awaiting_institution", "deficiency_raised", "approved", "rejected", "pending_evc", "pending_committee"] } },
+          ],
+        },
+      }),
     ]);
 
     // Urgent = overdue + urgent priority applications + pending delegations
@@ -161,7 +182,7 @@ export const collaborationService = {
         AND: [
           personalAssignmentClause,
           { priority: "URGENT" },
-          { status: { notIn: ["approved", "rejected", "closed", "withdrawn"] } },
+          { status: { notIn: ["approved", "rejected", "closed", "withdrawn", "awaiting_institution", "deficiency_raised"] } },
         ],
       },
     });
@@ -179,6 +200,7 @@ export const collaborationService = {
       delegatedByMe: delegatedByMeCount,
       unreadMessages: unreadMessagesCount,
       completed: completedCount,
+      processed: processedCount || (waitingInstituteCount + completedCount),
       urgent: urgentCount,
       staff: {
         id: staff.id,
@@ -271,7 +293,23 @@ export const collaborationService = {
     if (filter === "assigned") {
       where.AND = [
         personalAssignmentClause,
-        { status: { notIn: ["approved", "rejected", "closed", "withdrawn"] } },
+        { status: { notIn: ["approved", "rejected", "closed", "withdrawn", "awaiting_institution", "deficiency_raised"] } },
+      ];
+    } else if (filter === "processed") {
+      where.AND = [
+        {
+          OR: [
+            { assignedUserId: { in: staffIds } },
+            {
+              workflowInstance: {
+                stages: {
+                  some: { assignedStaffId: staff.id },
+                },
+              },
+            },
+          ],
+        },
+        { status: { in: ["awaiting_institution", "deficiency_raised", "approved", "rejected", "pending_evc", "pending_committee"] } },
       ];
     } else if (filter === "waiting") {
       where.AND = [
@@ -310,13 +348,12 @@ export const collaborationService = {
         personalAssignmentClause,
         {
           OR: [
-            { priority: { in: ["URGENT", "IMPORTANT"] } },
+            { priority: "URGENT" },
             { dueAt: { lt: now } },
             { dueAt: { lte: threeDaysFromNow, gte: now } },
-            { status: { in: ["awaiting_institution", "deficiency_raised"] } },
           ],
         },
-        { status: { notIn: ["approved", "rejected", "closed", "withdrawn"] } },
+        { status: { notIn: ["approved", "rejected", "closed", "withdrawn", "awaiting_institution", "deficiency_raised"] } },
       ];
     } else {
       // Filter: "all"

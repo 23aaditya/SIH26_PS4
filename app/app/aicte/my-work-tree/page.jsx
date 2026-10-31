@@ -337,7 +337,7 @@ function WorkTreeContent() {
                 <Card key={comm.committeeId} className="p-4 border border-slate-200/90 shadow-2xs bg-white rounded-xl space-y-2">
                   <div className="flex items-center justify-between">
                     <p className="text-xs font-bold text-slate-900">{comm.committeeName}</p>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200">
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-[#1E40AF] border border-blue-200">
                       {comm.myRole}
                     </span>
                   </div>

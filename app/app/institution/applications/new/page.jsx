@@ -623,7 +623,7 @@ export default function NewApplicationPage() {
                               {type.name}
                             </span>
                             {type.requiresEvc && (
-                              <span className="text-[10px] font-semibold text-purple-700 bg-purple-50 px-2 py-0.5 rounded-full border border-purple-200">
+                              <span className="text-[10px] font-semibold text-[#1E40AF] bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
                                 EVC Inspection Required
                               </span>
                             )}
@@ -1005,7 +1005,7 @@ export default function NewApplicationPage() {
                                 <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700">
                                   <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> Uploaded ✓
                                 </span>
-                                <p className="text-[10px] font-mono text-slate-400 truncate max-w-[140px]">
+                                <p className="text-[11px] font-normal text-slate-500 truncate max-w-[160px]">
                                   {uploaded.originalFilename} ({(uploaded.fileSize / 1024).toFixed(0)} KB)
                                 </p>
                               </div>

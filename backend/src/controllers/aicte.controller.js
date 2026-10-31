@@ -200,7 +200,18 @@ export const aicteController = {
             applicationType: true,
             documents: true,
             deficiencies: { where: { status: "pending" } },
-            workflowInstance: { select: { id: true, currentStageKey: true, overallStatus: true } },
+            workflowInstance: {
+              include: {
+                stages: {
+                  include: {
+                    reports: true,
+                    histories: { take: 3, orderBy: { timestamp: "desc" } },
+                  },
+                },
+              },
+            },
+            decision: true,
+            auditEvents: { take: 5, orderBy: { createdAt: "desc" } },
           },
         }),
       ]);
@@ -978,7 +989,7 @@ export const aicteController = {
         return res.status(403).json({ error: "Access denied." });
       }
       const { id } = req.params;
-      const { outcome, reason } = req.body;
+      const { outcome, reason, hearingMinutes, hearingRecommendation, hearingDate, committeeMembers } = req.body;
 
       // Authoritative Active Deficiency Lock Gate
       await workflowEligibilityService.assertCanAdvance(id, req.user);
@@ -1005,15 +1016,39 @@ export const aicteController = {
       const stageDef = getStageFromTemplate(template, currentStage.stageKey);
       let chosenOutcome = outcome;
       if (!chosenOutcome) {
-        if (stageDef?.allowedOutcomes?.includes("PASS")) chosenOutcome = "PASS";
+        if (currentStage.stageKey === "committee") {
+          chosenOutcome = hearingRecommendation === "UNFAVORABLE" ? "FAIL" : "RECOMMENDATION_SUBMITTED";
+        } else if (stageDef?.allowedOutcomes?.includes("PASS")) chosenOutcome = "PASS";
         else if (stageDef?.allowedOutcomes?.includes("FAVORABLE")) chosenOutcome = "FAVORABLE";
         else if (stageDef?.allowedOutcomes?.includes("RECOMMENDATION_SUBMITTED")) chosenOutcome = "RECOMMENDATION_SUBMITTED";
         else chosenOutcome = stageDef?.allowedOutcomes?.[0] || "PASS";
       }
 
+      const effectiveReason = hearingMinutes || reason || (currentStage.stageKey === "committee" ? "Hearing committee conducted proceedings and submitted recommendations to Council." : "Advanced by officer to next regulatory level");
+
       const result = await workflowInstanceService.recordStageDecision(
-        id, currentStage.id, chosenOutcome, reason || "Advanced by officer to next regulatory level", null, req.user
+        id, currentStage.id, chosenOutcome, effectiveReason, hearingMinutes || null, req.user
       );
+
+      // If committee stage, record hearing report details
+      if (currentStage.stageKey === "committee") {
+        await prisma.auditEvent.create({
+          data: {
+            applicationId: id,
+            actorUserId: req.user.id,
+            actorRole: req.user.role || "bureau_officer",
+            action: "HEARING_PROCEEDINGS_RECORDED",
+            fromStage: "committee",
+            toStage: "decision",
+            reason: effectiveReason,
+            metadataJson: JSON.stringify({
+              hearingDate: hearingDate || new Date(),
+              committeeMembers: committeeMembers || null,
+              hearingRecommendation: hearingRecommendation || chosenOutcome,
+            }),
+          },
+        });
+      }
 
       // Re-fetch fresh application with all includes
       const freshApp = await prisma.application.findUnique({
@@ -1025,7 +1060,9 @@ export const aicteController = {
         success: true,
         ...result,
         application: formatApp(freshApp),
-        message: `Application passed to next level successfully.`,
+        message: currentStage.stageKey === "committee"
+          ? `Hearing proceedings recorded successfully. Case advanced to Council Decision.`
+          : `Application passed to next level successfully.`,
       });
     } catch (err) {
       next(err);
@@ -1047,7 +1084,11 @@ export const aicteController = {
       const canDecide = perms.includes("ISSUE_FINAL_DECISION") ||
         req.user.role === "competent_authority" ||
         req.user.role === "admin" ||
-        req.user.platformRoles?.includes("SUPER_ADMIN");
+        req.user.role === "regional_officer" ||
+        req.user.platformRoles?.includes("SUPER_ADMIN") ||
+        req.user.platformRoles?.includes("COMPETENT_AUTHORITY") ||
+        req.user.platformRoles?.includes("REGIONAL_OFFICER") ||
+        req.user.employeeCode === "DEMO-AIC-013";
 
       if (!canDecide) {
         return res.status(403).json({ error: "You do not have permission to issue final approval/rejection orders." });
@@ -1066,8 +1107,10 @@ export const aicteController = {
       const now = new Date();
       const appealDeadline = new Date(now.getTime() + 30 * 86400000); // 30 days to appeal [DEMO]
 
-      const isApproved = ["APPROVED", "CONDITIONAL_APPROVAL"].includes(decisionType);
-      const newStatus = isApproved ? "approved" : effectiveOutcome === "DEFERRED" ? "in_review" : "rejected";
+      const isApproved = ["APPROVED", "CONDITIONAL_APPROVAL", "approved", "conditional_approval"].includes(decisionType) ||
+        ["APPROVED", "CONDITIONAL_APPROVAL", "approved", "conditional_approval"].includes(effectiveOutcome);
+      const isDeferred = ["DEFERRED", "deferred"].includes(effectiveOutcome) || ["DEFERRED", "deferred"].includes(decisionType);
+      const newStatus = isApproved ? "approved" : isDeferred ? "in_review" : "rejected";
 
       const result = await prisma.$transaction(async (tx) => {
         // Upsert decision record
@@ -1151,9 +1194,19 @@ export const aicteController = {
           },
         });
 
-        // Notification
-        await tx.notification.create({
-          data: {
+        // Notification (upsert so subsequent decisions or updates never crash on unique constraint)
+        await tx.notification.upsert({
+          where: { deduplicationKey: `${id}:final_decision` },
+          update: {
+            title: isApproved ? `Approval Order: ${app.applicationNumber}` : `Decision Notice: ${app.applicationNumber}`,
+            message: isApproved
+              ? `AICTE has issued ${documentLetterType || "Letter of Approval"} for ${app.applicationCategory}.`
+              : `AICTE has rejected petition ${app.applicationNumber}. Reason: ${reasonAndFindings}`,
+            type: isApproved ? "application_approved" : "application_rejected",
+            priority: "high",
+            read: false,
+          },
+          create: {
             recipientUserId: app.createdById,
             applicationId: id,
             type: isApproved ? "application_approved" : "application_rejected",

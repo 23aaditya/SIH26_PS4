@@ -346,99 +346,86 @@ function AgentDeficiencyProposalCard({
         {/* ─── CASE 1: PROPOSE_DEFICIENCY_NOTICE ─────────────────────────────── */}
         {isDeficiencyNotice && (
           <>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 bg-white rounded-lg border border-slate-200">
+            {/* Recipient & Statutory Details Summary Bar */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3.5 bg-slate-50/70 rounded-lg border border-slate-200">
               <div>
-                <span className="text-slate-500 block text-[10px] font-medium uppercase tracking-wider">Intended Recipient</span>
+                <span className="text-slate-500 block text-[10px] font-semibold uppercase tracking-wider">Intended Recipient</span>
                 <span className="font-bold text-slate-900 mt-0.5 block">{recipient}</span>
                 {(draft.recipient_institution_id || action.input_payload?.institution_id) && (
-                  <span className="text-[10px] text-slate-500 font-mono">ID: {draft.recipient_institution_id || action.input_payload?.institution_id}</span>
+                  <span className="text-[10px] text-slate-500 font-mono">PID: {draft.recipient_institution_id || action.input_payload?.institution_id}</span>
                 )}
               </div>
               <div>
-                <span className="text-slate-500 block text-[10px] font-medium uppercase tracking-wider">Statutory Authority</span>
-                <span className="font-semibold text-slate-800 mt-0.5 block">{draft.statutory_authority || "AICTE Approval Process Handbook (APH 2024-2027)"}</span>
+                <span className="text-slate-500 block text-[10px] font-semibold uppercase tracking-wider">Statutory Authority</span>
+                <span className="font-medium text-slate-800 mt-0.5 block">{draft.statutory_authority || "AICTE Approval Process Handbook (APH 2024-2027)"}</span>
               </div>
               <div>
-                <span className="text-slate-500 block text-[10px] font-medium uppercase tracking-wider">Response Window</span>
-                <span className="font-bold text-amber-900 mt-0.5 block">{dueDays} Calendar Days</span>
+                <span className="text-slate-500 block text-[10px] font-semibold uppercase tracking-wider">Compliance Response Window</span>
+                <span className="font-bold text-red-600 mt-0.5 block">{dueDays} Calendar Days</span>
               </div>
             </div>
 
-            <div className="flex flex-wrap gap-2 text-[10px] font-medium">
-              <span className="px-2 py-0.5 bg-amber-50 text-amber-800 border border-amber-200 rounded">
-                ⚖ Deterministic Statutory — in formal notice
-              </span>
-              <span className="px-2 py-0.5 bg-orange-50 text-orange-800 border border-orange-200 rounded">
-                ⚠ Placeholder / Unsubstantive Document Detected
-              </span>
-              <span className="px-2 py-0.5 bg-slate-50 text-slate-600 border border-slate-200 rounded italic">
-                ℹ Groq Advisory Observations are shown in the AI Scrutiny tab — NOT in this formal notice
-              </span>
-            </div>
-
-            <div className="space-y-2.5">
-              <div className="flex items-center justify-between">
+            {/* Clean Numbered Deficiency Items */}
+            <div className="space-y-3 pt-1">
+              <div className="flex items-center justify-between border-b border-slate-200/80 pb-2">
                 <span className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
-                  <AlertTriangle className="h-4 w-4 text-amber-600" />
-                  Proposed Deficiency Items — Deterministic Statutory ({items.length})
+                  <AlertCircle className="h-4 w-4 text-red-600" />
+                  Statutory Deficiencies Mandating Rectification ({items.length})
                 </span>
-                <span className="text-[10px] text-slate-500">Requires institutional rectification before approval</span>
+                <span className="text-[11px] text-slate-500">Requires institutional upload before approval</span>
               </div>
 
               {items.length === 0 && (
-                <div className="p-3 bg-slate-50 rounded border border-slate-200 text-slate-500 italic">
-                  No deterministic statutory deficiency items in this proposal.
+                <div className="p-4 bg-slate-50 rounded border border-slate-200 text-slate-500 italic text-center">
+                  No deterministic statutory deficiency items found in this dossier.
                 </div>
               )}
 
-              <div className="space-y-2">
-                {items.map((item, idx) => {
-                  const isPlaceholder = isPlaceholderItem(item);
-                  return (
-                    <div key={idx} className={`p-3 bg-white rounded-lg border shadow-2xs space-y-1.5 ${isPlaceholder ? "border-orange-300 bg-orange-50/20" : "border-amber-200"}`}>
-                      <div className="flex items-center justify-between gap-2 flex-wrap">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-bold text-slate-900">{idx + 1}. {item.rule_name || item.rule_id}</span>
-                          <span className="text-[10px] font-mono bg-amber-50 text-amber-800 px-1.5 py-0.5 rounded border border-amber-200">
+              <div className="space-y-3">
+                {items.map((item, idx) => (
+                  <div
+                    key={idx}
+                    className="p-4 bg-white rounded-lg border border-slate-200 hover:border-blue-300 transition-all shadow-xs space-y-2.5"
+                  >
+                    {/* Item Title, Number, and Statutory Tag */}
+                    <div className="flex items-start justify-between gap-2 flex-wrap">
+                      <div className="flex items-center gap-2.5">
+                        <span className="w-6 h-6 rounded-full bg-slate-100 text-slate-800 font-bold text-xs flex items-center justify-center shrink-0 border border-slate-200">
+                          {idx + 1}
+                        </span>
+                        <span className="font-bold text-slate-900 text-sm">
+                          {item.rule_name || item.rule_id}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {item.aph_clause && (
+                          <span className="text-[10px] font-mono bg-slate-100 text-slate-700 px-2 py-0.5 rounded border border-slate-200">
                             {item.aph_clause}
                           </span>
-                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-200">
-                            ⚖ STATUTORY DEFICIENCY
-                          </span>
-                          {isPlaceholder && (
-                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-orange-100 text-orange-900 border border-orange-300">
-                              ⚠ PLACEHOLDER DOCUMENT
-                            </span>
-                          )}
-                        </div>
-                        {(item.source_document || item.document_name) && (
-                          <span className="text-[10px] font-mono bg-blue-50 text-blue-800 px-2 py-0.5 rounded border border-blue-200">
-                            Doc: {item.source_document || item.document_name}
-                            {item.source_page || item.page_number ? ` (p. ${item.source_page || item.page_number})` : ""}
-                          </span>
                         )}
-                      </div>
-                      <div className="text-[11px] text-slate-700">
-                        <span className="font-semibold text-slate-800">Observed Defect: </span>
-                        {item.evidence}
-                      </div>
-                      <div className="text-[11px] text-emerald-800 bg-emerald-50/70 p-2 rounded border border-emerald-200/80">
-                        <span className="font-bold text-emerald-950">Requested Corrective Action: </span>
-                        {item.corrective_action || item.recommendation}
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-red-50 text-red-700 border border-red-200">
+                          Deficiency
+                        </span>
                       </div>
                     </div>
-                  );
-                })}
-              </div>
-            </div>
 
-            <div className="p-2.5 bg-slate-50 rounded border border-slate-200 text-[11px] text-slate-700 flex items-start gap-2">
-              <Eye className="h-4 w-4 text-slate-500 shrink-0 mt-0.5" />
-              <div>
-                <strong>Groq LLM Advisory Observations</strong> (if any) are shown separately in the
-                &ldquo;AI Scrutiny&rdquo; tab under &ldquo;Groq LLM Qualitative Scrutiny&rdquo;.
-                Advisory observations are <em>not</em> included in this formal deficiency notice
-                unless a deterministic statutory rule independently establishes the same deficiency.
+                    {/* Observed Defect */}
+                    <div className="text-xs text-slate-700 pl-8 space-y-1">
+                      <div className="flex items-start gap-1.5">
+                        <span className="font-semibold text-slate-900 shrink-0">Observed Defect:</span>
+                        <span className="text-slate-700 leading-relaxed">{item.evidence}</span>
+                      </div>
+                    </div>
+
+                    {/* Clean Action Callout (Executive Blue Box) */}
+                    <div className="ml-8 p-3 bg-blue-50/70 rounded-md border border-blue-200 text-xs text-blue-950 flex items-start gap-2">
+                      <span className="font-bold text-blue-900 shrink-0">Required Action:</span>
+                      <span className="leading-relaxed text-blue-950 font-normal">
+                        {item.corrective_action || item.recommendation}
+                      </span>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           </>
@@ -891,6 +878,12 @@ function CaseReviewContent() {
     const [isDelegationOpen, setIsDelegationOpen] = useState(false);
     // Modals state
     const [showClarifyModal, setShowClarifyModal] = useState(false);
+    const [showDeficiencyGateModal, setShowDeficiencyGateModal] = useState(false);
+    const [showHearingModal, setShowHearingModal] = useState(false);
+    const [hearingMinutes, setHearingMinutes] = useState("");
+    const [hearingRecommendation, setHearingRecommendation] = useState("FAVORABLE");
+    const [hearingMembers, setHearingMembers] = useState("Prof. Dr. A. K. Sharma (Chairman), Dr. R. Verma (Subject Expert), Bureau Officer");
+    const [submittingHearing, setSubmittingHearing] = useState(false);
     const [showAdvanceModal, setShowAdvanceModal] = useState(false);
     const [showEvcModal, setShowEvcModal] = useState(false);
     const [showDecisionModal, setShowDecisionModal] = useState(false);
@@ -1345,6 +1338,52 @@ function CaseReviewContent() {
         reloadData();
         setSubmittingAdvance(false);
     };
+    // 2.5 Action: Conduct Hearing & Advance to Council Decision
+    const handleConductHearing = async () => {
+        setSubmittingHearing(true);
+        try {
+            const res = await fetch(`${API_BASE}/aicte/applications/${app.id}/forward`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "x-user-id": userProfile?.uid || userProfile?.employeeCode || "DEMO-AIC-013",
+                },
+                credentials: "include",
+                body: JSON.stringify({
+                    outcome: hearingRecommendation === "UNFAVORABLE" ? "FAIL" : "RECOMMENDATION_SUBMITTED",
+                    hearingRecommendation,
+                    hearingMinutes: hearingMinutes || `Hearing proceedings conducted with recommendation: ${hearingRecommendation}`,
+                    hearingDate: new Date().toISOString(),
+                    committeeMembers: hearingMembers,
+                    reason: hearingMinutes || `Standing Hearing Committee concluded review. Recommendation: ${hearingRecommendation}`,
+                }),
+            });
+
+            if (res.ok) {
+                setShowHearingModal(false);
+                setHearingMinutes("");
+                setNotificationBanner({
+                    type: "success",
+                    message: `Standing Hearing Committee proceedings sealed. Recommendation '${hearingRecommendation}' submitted to Executive Council for Final Decision.`,
+                });
+                await reloadData();
+            } else {
+                const err = await res.json().catch(() => ({}));
+                setNotificationBanner({
+                    type: "error",
+                    message: err.error || "Failed to submit hearing proceedings.",
+                });
+            }
+        } catch (e) {
+            setNotificationBanner({
+                type: "error",
+                message: e.message || "Network error while submitting hearing proceedings.",
+            });
+        } finally {
+            setSubmittingHearing(false);
+        }
+    };
+
     // 3. Action: Schedule EVC
     const handleScheduleEvc = () => {
         dataService.scheduleEvc({
@@ -1468,77 +1507,105 @@ function CaseReviewContent() {
 
         {/* Action Bar (Top Right) */}
         <div className="flex flex-wrap items-center gap-2">
+          {(isDeficiencyActive || ["awaiting_institution", "deficiency_raised", "pending_evc", "pending_committee", "approved", "rejected", "closed"].includes(app.status)) && (
+            <span className="text-xs font-semibold px-2.5 py-1 rounded bg-slate-100 text-slate-800 border border-slate-300 flex items-center gap-1.5">
+              <CheckCircle2 className="h-3.5 w-3.5 text-blue-600" />
+              Action Processed ({app.status.replace(/_/g, " ").toUpperCase()})
+            </span>
+          )}
+
           <Button variant="outline" size="sm" onClick={() => setIsDelegationOpen(true)} className="text-xs text-blue-800 border-blue-300 hover:bg-blue-50">
             <UserCheck className="h-3.5 w-3.5 mr-1 text-blue-600"/> Delegate Task
           </Button>
 
-          <Button variant="outline" size="sm" onClick={() => setShowAssignModal(true)} className="text-xs text-slate-700">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowAssignModal(true)}
+            disabled={isDeficiencyActive || ["awaiting_institution", "deficiency_raised", "pending_evc", "pending_committee", "approved", "rejected", "closed"].includes(app.status)}
+            className="text-xs text-slate-700 disabled:opacity-50"
+          >
             <UserCheck className="h-3.5 w-3.5 mr-1"/> Reassign
           </Button>
 
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setShowClarifyModal(true)}
-            disabled={isDeficiencyActive}
-            title={isDeficiencyActive ? `Active deficiency notice pending response (Cycle #${app.returnCount || 1})` : "Return application for institutional clarification"}
-            className="text-xs text-amber-800 border-amber-300 hover:bg-amber-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={() => setShowDeficiencyGateModal(true)}
+            disabled={isDeficiencyActive || ["awaiting_institution", "deficiency_raised", "approved", "rejected", "closed"].includes(app.status)}
+            title={isDeficiencyActive || ["awaiting_institution", "deficiency_raised"].includes(app.status) ? "Application has already been dispatched with deficiencies and is awaiting institutional response." : "Evaluate deficiency: overview or revert back"}
+            className="text-xs text-red-800 border-red-300 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <RotateCcw className="h-3.5 w-3.5 mr-1 text-amber-600"/>
+            <RotateCcw className="h-3.5 w-3.5 mr-1 text-red-600"/>
             {isDeficiencyActive ? `Deficiency Notice Active (Cycle #${app.returnCount || 1})` : "Return for Clarification"}
           </Button>
 
-          {app.requiresEvc && (
+          {app.requiresEvc && app.currentStageId === "scrutiny" && (
             <Button
               variant="outline"
               size="sm"
               onClick={() => setShowEvcModal(true)}
-              disabled={isDeficiencyActive}
-              title={isDeficiencyActive ? `EVC inspection locked: Official deficiency notice (Cycle #${app.returnCount || 1}) is awaiting institutional response.` : "Schedule Expert Visiting Committee"}
-              className="text-xs text-purple-800 border-purple-300 hover:bg-purple-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={isDeficiencyActive || ["awaiting_institution", "deficiency_raised", "pending_evc", "pending_committee", "approved", "rejected", "closed"].includes(app.status)}
+              title={isDeficiencyActive ? "EVC inspection locked: Official deficiency notice is awaiting institutional response." : "Schedule Expert Visiting Committee"}
+              className="text-xs text-blue-800 border-blue-300 hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <Calendar className="h-3.5 w-3.5 mr-1 text-purple-600"/> Schedule EVC
+              <Calendar className="h-3.5 w-3.5 mr-1 text-blue-600"/> Schedule EVC
             </Button>
           )}
 
-          <Button
-            size="sm"
-            onClick={() => setShowAdvanceModal(true)}
-            disabled={isDeficiencyActive}
-            title={isDeficiencyActive ? `Forwarding locked: Official deficiency notice (Cycle #${app.returnCount || 1}) is awaiting institutional response.` : "Pass application to next regulatory level"}
-            className="text-xs bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-xs flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <ArrowRightCircle className="h-3.5 w-3.5 text-blue-100" />
-            Send to Next Level ({nextLevel.stageName.split(" ")[0]}...)
-          </Button>
-
-          <Button
-            size="sm"
-            onClick={() => setShowDecisionModal(true)}
-            disabled={isDeficiencyActive}
-            title={isDeficiencyActive ? `Final decision locked: Official deficiency notice (Cycle #${app.returnCount || 1}) is awaiting institutional response.` : "Record final regulatory decision"}
-            className="text-xs bg-slate-900 hover:bg-slate-800 text-white font-semibold shadow-xs disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <ShieldCheck className="h-3.5 w-3.5 mr-1 text-emerald-400"/> Record Final Decision
-          </Button>
+          {app.currentStageId === "committee" ? (
+            <Button
+              size="sm"
+              onClick={() => setShowHearingModal(true)}
+              disabled={isDeficiencyActive || ["awaiting_institution", "deficiency_raised", "approved", "rejected", "closed"].includes(app.status)}
+              title="Conduct Standing Hearing Committee review and record formal minutes"
+              className="text-xs bg-[#1E40AF] hover:bg-[#1E3A8A] text-white font-semibold shadow-xs flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Users className="h-3.5 w-3.5 text-blue-100" />
+              Conduct Hearing & Forward to Council
+            </Button>
+          ) : app.currentStageId === "decision" ? (
+            <Button
+              size="sm"
+              onClick={() => setShowDecisionModal(true)}
+              disabled={isDeficiencyActive || ["awaiting_institution", "deficiency_raised", "approved", "rejected", "closed"].includes(app.status)}
+              title="Record Council Final Decision (Grant Approval or Reject)"
+              className="text-xs bg-emerald-700 hover:bg-emerald-800 text-white font-semibold shadow-xs flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <ShieldCheck className="h-3.5 w-3.5 mr-1 text-emerald-100"/> Record Council Final Decision (Yes / No)
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              onClick={() => setShowAdvanceModal(true)}
+              disabled={isDeficiencyActive || ["awaiting_institution", "deficiency_raised", "pending_evc", "pending_committee", "approved", "rejected", "closed"].includes(app.status)}
+              title={isDeficiencyActive ? "Forwarding locked: Official deficiency notice is awaiting institutional response." : "Pass application to next regulatory level"}
+              className="text-xs bg-[#1E40AF] hover:bg-[#1E3A8A] text-white font-semibold shadow-xs flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <ArrowRightCircle className="h-3.5 w-3.5 text-blue-100" />
+              Pass to Next Level ({nextLevel.stageName.split(" ")[0]}...)
+            </Button>
+          )}
         </div>
       </div>
 
-      {/* Active Deficiency Notice Lock Banner */}
-      {isDeficiencyActive && (
-        <div className="rounded-lg border border-amber-300 bg-amber-50/90 p-3 text-xs text-amber-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+      {/* Active Action / Deficiency Lock Banner */}
+      {(isDeficiencyActive || ["awaiting_institution", "deficiency_raised", "pending_evc", "pending_committee", "approved", "rejected"].includes(app.status)) && (
+        <div className="rounded-lg border border-blue-200 bg-blue-50/80 p-3.5 text-xs text-blue-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
           <div className="flex items-start sm:items-center gap-2.5">
-            <AlertTriangle className="h-4 w-4 text-amber-700 shrink-0 mt-0.5 sm:mt-0" />
+            <CheckCircle2 className="h-4 w-4 text-blue-700 shrink-0 mt-0.5 sm:mt-0" />
             <div>
-              <span className="font-bold">Active Deficiency Notice (Cycle #{app.returnCount || activeDeficiency?.cycleNumber || 1}) — Forward Workflow Actions Locked:</span>
+              <span className="font-bold">Workflow Action Dispatched — Moved to Processed Applications Queue:</span>
               <span className="ml-1 text-slate-700">
-                Official statutory deficiency notice was dispatched to {institution?.institutionName || "the applicant institution"}. Passing to next regulatory level and recording final decisions are locked until institutional clarification is submitted and scrutiny review is completed.
+                {isDeficiencyActive || app.status === "awaiting_institution" || app.status === "deficiency_raised"
+                  ? `Official statutory deficiency notice was dispatched to ${institution?.institutionName || "the applicant institution"}. Action has been registered; this case is moved to Processed Applications while awaiting institutional response.`
+                  : `Case has been moved forward to ${app.currentStageName || app.status}. Actions on this stage are completed and locked.`}
               </span>
             </div>
           </div>
           {(app.dueAt || activeDeficiency?.dueAt) && (
-            <div className="text-[11px] font-mono text-amber-900 shrink-0 bg-amber-100 px-2.5 py-1 rounded border border-amber-300 font-semibold self-start sm:self-auto">
-              Response Due: {new Date(Number(app.dueAt || activeDeficiency?.dueAt) || (app.dueAt || activeDeficiency?.dueAt)).toLocaleDateString()}
+            <div className="text-[11px] font-mono text-slate-700 shrink-0 bg-white px-2.5 py-1 rounded border border-slate-300 font-semibold self-start sm:self-auto">
+              Status: {app.status.replace(/_/g, " ").toUpperCase()}
             </div>
           )}
         </div>
@@ -1827,7 +1894,7 @@ function CaseReviewContent() {
           {activeTab === "ai_scrutiny" && (
             <div className="space-y-4">
               <Card className="border border-indigo-200 shadow-xs bg-white">
-                <CardHeader className="p-4 border-b border-indigo-100 bg-gradient-to-r from-indigo-50/60 to-purple-50/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <CardHeader className="p-4 border-b border-blue-100 bg-gradient-to-r from-blue-50/70 to-slate-50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
                     <div className="flex items-center gap-2">
                       <div className="h-6 w-6 rounded bg-indigo-600 text-white flex items-center justify-center font-bold text-xs">
@@ -1899,24 +1966,6 @@ function CaseReviewContent() {
                     </div>
                   ) : aiReport && (
                     <>
-                      {/* Autonomous Agent Proposed Deficiency Notice (waiting approval or historical executed/rejected record) */}
-                      {agentActions && agentActions.length > 0 && (
-                        <AgentDeficiencyProposalCard
-                          action={
-                            agentActions.find(a => a.status === "WAITING_FOR_APPROVAL") || agentActions.find(a => a.status === "EXECUTED") || agentActions[0]
-                          }
-                          onApprove={handleApproveAgentAction}
-                          onOpenReject={(actionId) => {
-                            setSelectedActionId(actionId);
-                            setShowRejectModal(true);
-                          }}
-                          actionProcessing={actionProcessing}
-                          officerNotes={officerActionNotes}
-                          setOfficerNotes={setOfficerActionNotes}
-                          currentVersionHash={aiMeta?.versionHash}
-                        />
-                      )}
-
                       {/* Executive Summary Card (Clean, Styled, No Raw Markdown) */}
                       <AiExecutiveSummary
                         content={aiReport.content}
@@ -1941,7 +1990,7 @@ function CaseReviewContent() {
                           </span>
                         )}
                         {aiMeta?.isResubmission && (
-                          <span className="text-[10px] font-semibold bg-purple-50 text-purple-700 px-2 py-0.5 rounded border border-purple-200">
+                          <span className="text-[10px] font-semibold bg-blue-50 text-blue-800 px-2 py-0.5 rounded border border-blue-200">
                             Event-Triggered Resubmission Scrutiny
                           </span>
                         )}
@@ -2025,62 +2074,55 @@ function CaseReviewContent() {
                             const isCompliant = f.status === "COMPLIANT";
                             const isDeficient = f.status === "DEFICIENT";
                             const isNotApplicable = f.status === "NOT_APPLICABLE";
-                            const isTechnicalError = f.status === "TECHNICAL_ERROR";
-
-                            const cardBg = isCompliant
-                              ? "bg-emerald-50/30 border-emerald-200"
-                              : isDeficient
-                              ? "bg-red-50/30 border-red-200"
-                              : isNotApplicable
-                              ? "bg-slate-50 border-slate-200 opacity-80"
-                              : isTechnicalError
-                              ? "bg-orange-50/30 border-orange-200"
-                              : "bg-amber-50/30 border-amber-200";
-
-                            const badgeStyle = isCompliant
-                              ? "bg-emerald-100 text-emerald-800 border-emerald-300"
-                              : isDeficient
-                              ? "bg-red-100 text-red-800 border-red-300"
-                              : isNotApplicable
-                              ? "bg-slate-100 text-slate-600 border-slate-300"
-                              : isTechnicalError
-                              ? "bg-orange-100 text-orange-800 border-orange-300"
-                              : "bg-amber-100 text-amber-800 border-amber-300";
 
                             return (
-                              <div key={idx} className={`p-3 rounded-lg border transition ${cardBg}`}>
+                              <div
+                                key={idx}
+                                className="p-4 rounded-lg border border-slate-200 bg-white hover:border-blue-300 transition-all shadow-xs space-y-2.5"
+                              >
                                 <div className="flex items-start justify-between gap-3">
-                                  <div className="space-y-1 flex-1 min-w-0">
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                      <span className="font-semibold text-slate-900 text-xs">{f.rule_name}</span>
-                                      <span className="text-[10px] text-slate-600 font-mono bg-white px-1.5 py-0.5 rounded border border-slate-200">
+                                  <div className="flex items-center gap-2.5 flex-wrap">
+                                    <span className="w-6 h-6 rounded-full bg-slate-100 text-slate-800 font-bold text-xs flex items-center justify-center shrink-0 border border-slate-200">
+                                      {idx + 1}
+                                    </span>
+                                    <span className="font-bold text-slate-900 text-xs sm:text-sm">
+                                      {f.rule_name}
+                                    </span>
+                                    {f.aph_clause && (
+                                      <span className="text-[10px] text-slate-600 font-mono bg-slate-50 px-2 py-0.5 rounded border border-slate-200">
                                         {f.aph_clause}
                                       </span>
-                                      {f.aph_chapter && (
-                                        <span className="text-[9px] text-slate-500 bg-slate-100 px-1 py-0.2 rounded">
-                                          {f.aph_chapter}
-                                        </span>
-                                      )}
-                                      {f.document_name && (
-                                        <span className="text-[10px] font-mono text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200">
-                                          Doc: {f.document_name}
-                                        </span>
-                                      )}
-                                    </div>
-                                    <p className="text-[11px] text-slate-700 leading-relaxed">
-                                      <strong className="text-slate-900">Evidence:</strong> {f.evidence}
-                                    </p>
-                                    <p className="text-[11px] text-slate-600">
-                                      <strong className="text-slate-800">Recommendation:</strong> {f.recommendation}
-                                    </p>
+                                    )}
+                                    {f.document_name && (
+                                      <span className="text-[10px] font-mono text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200">
+                                        Doc: {f.document_name}
+                                      </span>
+                                    )}
                                   </div>
-                                  <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase shrink-0 border ${badgeStyle}`}>
-                                    {isNotApplicable
-                                      ? "NOT APPLICABLE"
-                                      : isTechnicalError
-                                      ? "TECH ERROR"
-                                      : f.status}
+                                  <span
+                                    className={`text-[10px] font-bold px-2.5 py-0.5 rounded uppercase shrink-0 border ${
+                                      isCompliant
+                                        ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                                        : isDeficient
+                                        ? "bg-red-50 text-red-800 border-red-200"
+                                        : "bg-slate-100 text-slate-600 border-slate-200"
+                                    }`}
+                                  >
+                                    {isCompliant ? "COMPLIANT" : isDeficient ? "DEFICIENT" : f.status}
                                   </span>
+                                </div>
+
+                                <div className="pl-8 space-y-2 text-xs text-slate-700">
+                                  <div className="flex items-start gap-1.5">
+                                    <span className="font-semibold text-slate-900 shrink-0">Finding:</span>
+                                    <span className="text-slate-700 leading-relaxed">{f.evidence}</span>
+                                  </div>
+                                  {f.recommendation && (
+                                    <div className="p-2.5 bg-blue-50/70 border border-blue-200 text-blue-950 rounded-md flex items-start gap-1.5">
+                                      <span className="font-bold text-blue-900 shrink-0">Required Action:</span>
+                                      <span className="text-blue-950 font-normal">{f.recommendation}</span>
+                                    </div>
+                                  )}
                                 </div>
                               </div>
                             );
@@ -2124,8 +2166,8 @@ function CaseReviewContent() {
                             Groq LLM Qualitative & Contextual Scrutiny
                           </h4>
                         {/* Advisory Only Disclaimer Pill */}
-                        <div className="mb-2.5 p-2 bg-purple-50/70 rounded border border-purple-200 text-[11px] text-purple-900 flex items-center gap-1.5">
-                          <Eye className="h-3.5 w-3.5 text-purple-600 shrink-0" />
+                        <div className="mb-2.5 p-2 bg-blue-50/70 rounded border border-blue-200 text-[11px] text-blue-900 flex items-center gap-1.5">
+                          <Eye className="h-3.5 w-3.5 text-blue-700 shrink-0" />
                           <span>
                             <strong>Advisory Only — Not in Formal Deficiency Notice:</strong> Qualitative LLM observations highlight context and evidence gaps for human committee consideration; they are strictly excluded from the official statutory deficiency notice unless backed by an established deterministic APH rule.
                           </span>
@@ -2214,14 +2256,14 @@ function CaseReviewContent() {
                               aiMeta.llmFindings.map((lf, idx) => (
                                 <div
                                   key={idx}
-                                  className="p-3 rounded-lg border border-purple-200 bg-purple-50/20 text-xs space-y-1.5"
+                                  className="p-3 rounded-lg border border-blue-200 bg-blue-50/30 text-xs space-y-1.5"
                                 >
                                   <div className="flex items-center justify-between gap-2 flex-wrap">
                                     <div className="flex items-center gap-2">
                                       <span className="font-bold text-slate-900 text-xs">
                                         {lf.finding_type?.replace(/_/g, " ")}
                                       </span>
-                                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 border border-purple-300">
+                                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-900 border border-blue-300">
                                         {lf.severity_suggestion || "ADVISORY_LOW"}
                                       </span>
                                       {lf.confidence && (
@@ -2252,12 +2294,12 @@ function CaseReviewContent() {
                                     {lf.explanation}
                                   </p>
                                   {lf.evidence_excerpt && (
-                                    <blockquote className="border-l-2 border-purple-400 pl-2.5 py-0.5 text-[11px] text-slate-600 italic bg-white/70 rounded-r">
+                                    <blockquote className="border-l-2 border-blue-400 pl-2.5 py-0.5 text-[11px] text-slate-600 italic bg-white/70 rounded-r">
                                       &ldquo;{lf.evidence_excerpt}&rdquo;
                                     </blockquote>
                                   )}
                                   {lf.facts_vs_inference && (
-                                    <p className="text-[11px] text-slate-600 bg-white/60 p-1.5 rounded border border-purple-100">
+                                    <p className="text-[11px] text-slate-600 bg-white/60 p-1.5 rounded border border-blue-100">
                                       <strong>Factual Basis vs. Inference:</strong> {lf.facts_vs_inference}
                                     </p>
                                   )}
@@ -2349,7 +2391,7 @@ function CaseReviewContent() {
                     Physical/virtual infrastructure and laboratory inspection panel
                   </CardDescription>
                 </div>
-                <Button size="sm" onClick={() => setShowEvcModal(true)} className="h-7 text-xs bg-purple-700 hover:bg-purple-800 text-white">
+                <Button size="sm" onClick={() => setShowEvcModal(true)} className="h-7 text-xs bg-blue-700 hover:bg-blue-800 text-white">
                   <Calendar className="h-3 w-3 mr-1"/> Schedule / Reschedule EVC
                 </Button>
               </CardHeader>
@@ -2363,7 +2405,7 @@ function CaseReviewContent() {
                   </div>
                   <div>
                     <span className="text-slate-500 block">Inspection Status</span>
-                    <span className="font-semibold text-purple-700 block mt-0.5">
+                    <span className="font-semibold text-blue-800 block mt-0.5">
                       {app.status === "pending_evc" ? "Scheduled / Panel Formed" : "Pending Action"}
                     </span>
                   </div>
@@ -2436,7 +2478,7 @@ function CaseReviewContent() {
               </div>
               <div className="flex items-center justify-between text-[11px]">
                 <span className="text-slate-500">Groq LLM Observations:</span>
-                <span className="font-semibold text-purple-700">
+                <span className="font-semibold text-blue-800">
                   {aiMeta?.llmFindings?.length || 0} flagged
                 </span>
               </div>
@@ -2509,6 +2551,79 @@ function CaseReviewContent() {
           </div>
         </div>
       </div>
+
+      {/* 0. Deficiency Decision Gate Dialog (Requirement 1) */}
+      <Dialog
+        open={showDeficiencyGateModal}
+        onOpenChange={setShowDeficiencyGateModal}
+        title="Statutory Deficiency Identified — Decision Gate"
+        description={`Application: ${app.applicationNumber} • ${institution?.institutionName || "Applicant Institution"}`}
+      >
+        <div className="space-y-4 text-xs">
+          <div className="p-3.5 bg-blue-50/80 rounded-lg border border-blue-200 text-blue-950 space-y-2">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 text-[#1E40AF] shrink-0" />
+              <strong className="text-[#0F172A] font-semibold text-xs">Officer Decision Required Before Action</strong>
+            </div>
+            <p className="text-[11px] text-slate-700 leading-relaxed font-normal">
+              A statutory deficiency or documentation non-compliance has been flagged for this application during scrutiny.
+              As the authorized regulatory officer, please choose whether you want to overview all specific deficiency items first, or directly dispatch the official statutory revert notice to the institution.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50 rounded-lg border border-slate-200 text-[11px]">
+            <div>
+              <span className="text-slate-500 block uppercase text-[10px] font-semibold">Active Scrutiny State</span>
+              <span className="font-semibold text-slate-900 block mt-0.5">{app.currentStageName || "Scrutiny Review"}</span>
+            </div>
+            <div>
+              <span className="text-slate-500 block uppercase text-[10px] font-semibold">Statutory Response Window</span>
+              <span className="font-bold text-red-700 block mt-0.5">10 Calendar Days (per APH)</span>
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowDeficiencyGateModal(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setShowDeficiencyGateModal(false);
+                setActiveTab("deficiency");
+                setNotificationBanner({
+                  type: "info",
+                  message: "Overviewing flagged statutory deficiencies. Review the itemized checklist below before issuing notice.",
+                });
+                setTimeout(() => {
+                  const el = document.getElementById("deficiency-overview-section");
+                  if (el) el.scrollIntoView({ behavior: "smooth" });
+                }, 200);
+              }}
+              className="text-xs border-[#1E40AF] text-[#1E40AF] hover:bg-blue-50 font-semibold flex items-center gap-1.5"
+            >
+              <Eye className="h-3.5 w-3.5 text-[#1E40AF]" />
+              Overview Deficiencies
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                setShowDeficiencyGateModal(false);
+                setShowClarifyModal(true);
+              }}
+              className="text-xs bg-red-700 hover:bg-red-800 text-white font-semibold flex items-center gap-1.5"
+            >
+              <RotateCcw className="h-3.5 w-3.5 text-red-100" />
+              Revert Back to Institution
+            </Button>
+          </div>
+        </div>
+      </Dialog>
 
       {/* 1. Return for Clarification Dialog */}
       <Dialog open={showClarifyModal} onOpenChange={setShowClarifyModal} title="Issue Deficiency Letter (Return to Institution)" description={`Formal statutory deficiency notice for ${app.applicationNumber}`}>
@@ -2647,7 +2762,7 @@ function CaseReviewContent() {
             <Button variant="ghost" size="sm" onClick={() => setShowEvcModal(false)}>
               Cancel
             </Button>
-            <Button size="sm" onClick={handleScheduleEvc} className="bg-purple-700 text-white">
+            <Button size="sm" onClick={handleScheduleEvc} className="bg-blue-700 hover:bg-blue-800 text-white font-semibold">
               Confirm & Dispatch Orders
             </Button>
           </div>
@@ -2691,6 +2806,121 @@ function CaseReviewContent() {
               className="bg-red-600 hover:bg-red-700 text-white"
             >
               {actionProcessing ? "Declining..." : "Confirm Decline Proposal"}
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+
+      {/* 3.5 Standing Hearing Committee (SHC) Proceedings Dialog (Requirement 2) */}
+      <Dialog
+        open={showHearingModal}
+        onOpenChange={setShowHearingModal}
+        title="Standing Hearing Committee (SHC) Proceedings & Recommendation"
+        description={`Formal hearing review for Application ${app.applicationNumber} (${institution?.institutionName || "Applicant Institution"})`}
+      >
+        <div className="space-y-4 text-xs">
+          <div className="p-3 bg-blue-50/70 rounded-lg border border-blue-200 text-blue-950">
+            <p className="text-[11px] leading-relaxed">
+              <strong>Statutory Mandate:</strong> The Standing Hearing Committee evaluates institutional rejoinders, compliance affidavits, and representations. Formulate committee findings and submit formal recommendations for Council final decision.
+            </p>
+          </div>
+
+          <div>
+            <Label className="font-semibold text-slate-800 block mb-1">
+              Standing Hearing Committee Panel Members *
+            </Label>
+            <Input
+              value={hearingMembers}
+              onChange={(e) => setHearingMembers(e.target.value)}
+              placeholder="e.g. Prof. Dr. A. K. Sharma (Chairman), Subject Expert, Bureau Officer"
+              className="h-8 text-xs"
+            />
+          </div>
+
+          <div>
+            <Label className="font-semibold text-slate-800 block mb-1">
+              Committee Recommendation Outcome *
+            </Label>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-1">
+              <label className={`p-2.5 rounded-lg border cursor-pointer flex items-center gap-2 transition-all ${
+                hearingRecommendation === "FAVORABLE"
+                  ? "bg-emerald-50 border-emerald-400 text-emerald-950 font-semibold"
+                  : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
+              }`}>
+                <input
+                  type="radio"
+                  name="hearingRec"
+                  checked={hearingRecommendation === "FAVORABLE"}
+                  onChange={() => setHearingRecommendation("FAVORABLE")}
+                  className="text-emerald-600"
+                />
+                <span>Favorable (Recommend Approval)</span>
+              </label>
+
+              <label className={`p-2.5 rounded-lg border cursor-pointer flex items-center gap-2 transition-all ${
+                hearingRecommendation === "CONDITIONAL"
+                  ? "bg-amber-50 border-amber-400 text-amber-950 font-semibold"
+                  : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
+              }`}>
+                <input
+                  type="radio"
+                  name="hearingRec"
+                  checked={hearingRecommendation === "CONDITIONAL"}
+                  onChange={() => setHearingRecommendation("CONDITIONAL")}
+                  className="text-amber-600"
+                />
+                <span>Conditional (With Undertakings)</span>
+              </label>
+
+              <label className={`p-2.5 rounded-lg border cursor-pointer flex items-center gap-2 transition-all ${
+                hearingRecommendation === "UNFAVORABLE"
+                  ? "bg-rose-50 border-rose-400 text-rose-950 font-semibold"
+                  : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
+              }`}>
+                <input
+                  type="radio"
+                  name="hearingRec"
+                  checked={hearingRecommendation === "UNFAVORABLE"}
+                  onChange={() => setHearingRecommendation("UNFAVORABLE")}
+                  className="text-rose-600"
+                />
+                <span>Unfavorable (Recommend Rejection)</span>
+              </label>
+            </div>
+          </div>
+
+          <div>
+            <Label className="font-semibold text-slate-800 block mb-1">
+              Formal Hearing Proceedings & Committee Minutes *
+            </Label>
+            <Textarea
+              rows={4}
+              value={hearingMinutes}
+              onChange={(e) => setHearingMinutes(e.target.value)}
+              placeholder="Record summary of institutional appearance, rejoinders produced, physical proofs examined, and unanimous committee recommendation..."
+              className="text-xs"
+            />
+          </div>
+
+          <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+            <Button variant="ghost" size="sm" onClick={() => setShowHearingModal(false)} disabled={submittingHearing}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleConductHearing}
+              disabled={submittingHearing}
+              className="bg-[#1E40AF] hover:bg-[#1E3A8A] text-white font-semibold flex items-center gap-1.5"
+            >
+              {submittingHearing ? (
+                <>
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin" /> Submitting Hearing Report...
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="h-3.5 w-3.5" /> Seal Minutes & Forward to Council
+                </>
+              )}
             </Button>
           </div>
         </div>

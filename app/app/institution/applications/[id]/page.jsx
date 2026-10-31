@@ -480,7 +480,7 @@ function ApplicationDetailContent() {
                 size="sm"
                 variant="outline"
                 onClick={() => setShowGrievanceModal(true)}
-                className="border-purple-300 text-purple-800 hover:bg-purple-50 text-xs shadow-xs font-semibold flex items-center gap-1.5"
+                className="border-blue-300 text-[#1E40AF] hover:bg-blue-50 text-xs shadow-xs font-semibold flex items-center gap-1.5"
               >
                 <Scale className="h-3.5 w-3.5" />
                 Raise Grievance
@@ -622,9 +622,9 @@ function ApplicationDetailContent() {
             </div>
 
             {/* Pathway 2: Raise Grievance / Appeal */}
-            <div className="bg-white rounded-xl border border-slate-200 p-4 hover:border-purple-300 transition shadow-2xs flex flex-col justify-between">
+            <div className="bg-white rounded-xl border border-slate-200 p-4 hover:border-blue-300 transition shadow-2xs flex flex-col justify-between">
               <div className="space-y-1.5">
-                <div className="flex items-center gap-2 text-purple-700">
+                <div className="flex items-center gap-2 text-[#1E40AF]">
                   <Scale className="h-4 w-4" />
                   <h4 className="font-bold text-xs uppercase tracking-wide">
                     Option 2: Raise Grievance / Appeal
@@ -638,7 +638,7 @@ function ApplicationDetailContent() {
                 size="sm"
                 variant="outline"
                 onClick={() => setShowGrievanceModal(true)}
-                className="mt-4 w-full border-purple-300 text-purple-800 hover:bg-purple-50 text-xs font-semibold h-8 flex items-center justify-center gap-1.5"
+                className="mt-4 w-full border-blue-300 text-[#1E40AF] hover:bg-blue-50 text-xs font-semibold h-8 flex items-center justify-center gap-1.5"
               >
                 <Gavel className="h-3.5 w-3.5" />
                 Raise Formal Grievance / Appeal
@@ -656,8 +656,8 @@ function ApplicationDetailContent() {
       )}
 
       {grievanceSuccess && (
-        <div className="rounded-lg border border-purple-200 bg-purple-50 p-3 flex items-center gap-2 text-xs text-purple-900 shadow-2xs">
-          <CheckCircle2 className="h-4 w-4 text-purple-600 shrink-0" />
+        <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 flex items-center gap-2 text-xs text-blue-900 shadow-2xs">
+          <CheckCircle2 className="h-4 w-4 text-[#1E40AF] shrink-0" />
           <span>Formal grievance successfully registered with AICTE. Your case has been referred to the Standing Hearing Committee (SHC) / Standing Appellate Committee (SAC) for statutory review.</span>
         </div>
       )}
@@ -723,7 +723,7 @@ function ApplicationDetailContent() {
                         <span className="font-semibold text-slate-900">{d.documentType}</span>
                         <DocumentBadge status={d.verificationStatus || "pending"} />
                       </div>
-                      <p className="text-[11px] font-mono text-slate-500 mt-0.5 truncate">
+                      <p className="text-[11px] font-normal text-slate-500 mt-0.5 truncate">
                         {d.originalFilename}
                         {d.fileSize ? ` • ${(d.fileSize / (1024 * 1024)).toFixed(2)} MB` : ""}
                       </p>
@@ -751,15 +751,15 @@ function ApplicationDetailContent() {
 
           {/* Section: Registered Grievances & Formal Appeals */}
           {app.appeals && app.appeals.length > 0 && (
-            <Card className="border border-purple-200 bg-white shadow-2xs">
-              <CardHeader className="p-4 border-b border-purple-100 flex flex-row items-center justify-between bg-purple-50/50">
+            <Card className="border border-blue-200 bg-white shadow-2xs">
+              <CardHeader className="p-4 border-b border-blue-100 flex flex-row items-center justify-between bg-blue-50/50">
                 <div className="flex items-center gap-2">
-                  <Scale className="h-4 w-4 text-purple-700" />
-                  <CardTitle className="text-sm font-semibold text-purple-950">
+                  <Scale className="h-4 w-4 text-[#1E40AF]" />
+                  <CardTitle className="text-sm font-semibold text-blue-950">
                     Registered Grievances & Formal Appeals ({app.appeals.length})
                   </CardTitle>
                 </div>
-                <span className="text-[10px] font-semibold uppercase tracking-wide bg-purple-100 text-purple-800 px-2 py-0.5 rounded border border-purple-200">
+                <span className="text-[10px] font-semibold uppercase tracking-wide bg-blue-100 text-[#1E40AF] px-2 py-0.5 rounded border border-blue-200">
                   Standing Hearing Committee Docket
                 </span>
               </CardHeader>
@@ -937,7 +937,7 @@ function ApplicationDetailContent() {
             <select
               value={grievanceCategory}
               onChange={(e) => setGrievanceCategory(e.target.value)}
-              className="w-full h-8 px-2 rounded border border-slate-200 text-xs text-slate-800 outline-none focus:border-purple-500"
+              className="w-full h-8 px-2 rounded border border-slate-200 text-xs text-slate-800 outline-none focus:border-[#1E40AF]"
             >
               <option value="Statutory Compliance Disputed (APH Norms Met)">
                 Statutory Compliance Disputed (Norms already compliant per APH)
@@ -964,7 +964,7 @@ function ApplicationDetailContent() {
               value={grievanceText}
               onChange={(e) => setGrievanceText(e.target.value)}
               placeholder="State clearly why the scrutiny objection is disputed, referencing relevant AICTE Approval Process Handbook (APH) clauses and submitted evidence..."
-              className="w-full p-2.5 rounded border border-slate-200 text-xs text-slate-800 outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500"
+              className="w-full p-2.5 rounded border border-slate-200 text-xs text-slate-800 outline-none focus:border-[#1E40AF] focus:ring-1 focus:ring-[#1E40AF]"
             />
           </div>
 
@@ -991,12 +991,12 @@ function ApplicationDetailContent() {
                     setGrievanceFile(f);
                   }
                 }}
-                className="mt-2 text-xs text-slate-500 file:mr-2 file:py-1 file:px-3 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100"
+                className="mt-2 text-xs text-slate-500 file:mr-2 file:py-1 file:px-3 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-[#1E40AF] hover:file:bg-blue-100"
               />
             </div>
           </div>
 
-          <div className="rounded-lg bg-purple-50/80 p-2.5 border border-purple-200 text-[11px] text-purple-900 leading-relaxed">
+          <div className="rounded-lg bg-blue-50/80 p-2.5 border border-blue-200 text-[11px] text-blue-900 leading-relaxed">
             <strong>Statutory Rights Notice:</strong> Grievances submitted under AICTE APH Chapter I/II are formally docketed and assigned to the Standing Hearing Committee (SHC) / Standing Appellate Committee (SAC).
           </div>
 
@@ -1008,7 +1008,7 @@ function ApplicationDetailContent() {
               size="sm"
               disabled={!grievanceText.trim() || submittingGrievance}
               onClick={handleGrievanceSubmit}
-              className="bg-purple-700 hover:bg-purple-800 text-white font-semibold flex items-center gap-1.5"
+              className="bg-[#1E40AF] hover:bg-[#1E3A8A] text-white font-semibold flex items-center gap-1.5"
             >
               {submittingGrievance ? (
                 <>

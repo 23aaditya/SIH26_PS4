@@ -9,6 +9,8 @@ import { StatusBadge, SlaCountdown } from "@/components/shared/StatusBadge";
 import { dataService, API_BASE } from "@/lib/dataService";
 import { APPLICATION_CATEGORY_LABELS, ROLE_LABELS, getApplicationCategoryLabel } from "@/lib/types";
 import { StaffManagementModule } from "@/components/aicte/StaffManagementModule";
+import { DelegationModal } from "@/components/aicte/DelegationModal";
+import { AvailabilityModal } from "@/components/aicte/AvailabilityModal";
 import {
   FileText,
   Clock,
@@ -78,6 +80,57 @@ function getStageStep(stageName = "") {
   return 1;
 }
 
+function getStageSummary(app) {
+  const isScrutinyDone = ["pending_committee", "pending_evc", "approved", "rejected"].includes(app.status) || ["committee", "decision"].includes(app.currentStageId);
+  const hasDeficiency = app.hasActiveDeficiency || (app.deficiencies && app.deficiencies.length > 0) || app.returnCount > 0;
+
+  const scrutinyText = hasDeficiency
+    ? `Deficiency notice issued (Cycle #${app.returnCount || 1}); institutional response received and cleared.`
+    : isScrutinyDone
+    ? "All primary statutory documents verified. AI pre-check passed with 0 critical non-compliances."
+    : "Primary document verification & statutory norms scrutiny in progress.";
+
+  const hearingStage = app.workflowInstance?.stages?.find((s) => s.stageKey === "committee");
+  const hearingReport = hearingStage?.reports?.find((r) => r.reportType === "SHC_MINUTES") || hearingStage?.reports?.[0];
+  const hearingText = hearingReport
+    ? `Hearing conducted. Minutes recorded: ${hearingReport.findings || hearingReport.recommendations || "Proceeding concluded"}.`
+    : hearingStage?.stageStatus === "COMPLETED"
+    ? `Hearing concluded. Recommendation: ${hearingStage.outcome || "Forwarded to Council"}.`
+    : app.currentStageId === "committee"
+    ? "Standing Hearing Committee proceeding actively in session."
+    : isScrutinyDone
+    ? "Standing Hearing Committee scheduled."
+    : "Awaiting scrutiny completion.";
+
+  const decisionText = (app.decision || app.status === "approved" || app.status === "rejected")
+    ? `Council Order: ${app.decision?.decisionType?.toUpperCase() || app.status?.toUpperCase()} (${app.decision?.documentLetterType || "EoA"}). Sealed on ${new Date(app.decision?.decisionDate || app.decision?.createdAt || Date.now()).toLocaleDateString("en-IN")}.`
+    : app.currentStageId === "decision"
+    ? "Pending final Council determination and sealing."
+    : "Pending hearing recommendation.";
+
+  return { scrutinyText, hearingText, decisionText };
+}
+
+function getHearingRecommendationBadge(app) {
+  const hearingStage = app.workflowInstance?.stages?.find((s) => s.stageKey === "committee");
+  const hearingReport = hearingStage?.reports?.find((r) => r.reportType === "SHC_MINUTES") || hearingStage?.reports?.[0];
+  const rec = (hearingReport?.recommendations || hearingStage?.outcome || "").toUpperCase();
+
+  if (rec.includes("FAVORABLE") || rec === "PASS" || rec === "RECOMMENDATION_SUBMITTED") {
+    return { label: "Favorable (Recommend Approval)", color: "bg-emerald-50 text-emerald-800 border-emerald-200" };
+  }
+  if (rec.includes("CONDITIONAL")) {
+    return { label: "Conditional Approval", color: "bg-amber-50 text-amber-800 border-amber-200" };
+  }
+  if (rec.includes("UNFAVORABLE") || rec === "FAIL") {
+    return { label: "Unfavorable (Recommend Reject)", color: "bg-rose-50 text-rose-800 border-rose-200" };
+  }
+  if (app.currentStageId === "committee") {
+    return { label: "Hearing In Session", color: "bg-blue-50 text-blue-800 border-blue-200" };
+  }
+  return { label: "Pending Hearing", color: "bg-slate-100 text-slate-600 border-slate-200" };
+}
+
 function AicteDashboardContent() {
   const { userProfile, switchWorkspace, activeWorkspace } = useAuth();
 
@@ -96,6 +149,8 @@ function AicteDashboardContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [listLoading, setListLoading] = useState(false);
+  const [actionInProgressId, setActionInProgressId] = useState(null);
+  const [adminBanner, setAdminBanner] = useState(null);
 
   // Modals
   const [isDelegationOpen, setIsDelegationOpen] = useState(false);
@@ -178,16 +233,23 @@ function AicteDashboardContent() {
     async function loadWorkList() {
       try {
         const headers = { "x-user-id": officerCode };
-        const res = await fetch(`${API_BASE}/aicte/my-work?filter=${activeTab}`, {
+        const url = activeTab === "admin_ledger"
+          ? `${API_BASE}/aicte/applications?pageSize=50`
+          : `${API_BASE}/aicte/my-work?filter=${activeTab}`;
+        const res = await fetch(url, {
           headers,
           credentials: "include",
           signal: controller.signal,
         });
         if (res.ok) {
           const data = await res.json();
-          setWorkList(data);
+          if (activeTab === "admin_ledger") {
+            setWorkList({ items: data.items || [], total: data.total || 0, type: "admin_ledger" });
+          } else {
+            setWorkList(data);
+          }
         } else {
-          setWorkList({ items: [], total: 0, type: "applications" });
+          setWorkList({ items: [], total: 0, type: activeTab === "admin_ledger" ? "admin_ledger" : "applications" });
         }
       } catch (err) {
         if (err.name !== "AbortError") {
@@ -206,6 +268,69 @@ function AicteDashboardContent() {
       controller.abort();
     };
   }, [activeTab, officerCode, userProfile]);
+
+  const handleAdminQuickDecision = async (appId, decisionOutcome) => {
+    setActionInProgressId(appId);
+    try {
+      const isApproved = decisionOutcome === "approved";
+      const res = await fetch(`${API_BASE}/aicte/applications/${appId}/decision`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-user-id": officerCode || "DEMO-AIC-013",
+        },
+        credentials: "include",
+        body: JSON.stringify({
+          decisionType: isApproved ? "approved" : "rejected",
+          outcome: isApproved ? "APPROVED" : "REJECTED",
+          reasonAndFindings: isApproved
+            ? "Final approval granted by Council Executive Committee following Standing Hearing Committee review. All statutory norms verified."
+            : "Application officially rejected following Standing Hearing Committee evaluation.",
+          documentLetterType: isApproved ? "LoA" : "LoD",
+        }),
+      });
+
+      if (res.ok) {
+        setAdminBanner({
+          type: "success",
+          message: isApproved
+            ? `Final Approval (YES) recorded. Official Approval Order (LoA/EoA) dispatched to institution and application removed from active queue.`
+            : `Application rejected (NO). Decision notice dispatched to institution and removed from active queue.`,
+        });
+        // Re-fetch ledger data
+        const refreshed = await fetch(`${API_BASE}/aicte/applications?pageSize=50`, {
+          headers: { "x-user-id": officerCode },
+          credentials: "include",
+        });
+        if (refreshed.ok) {
+          const rData = await refreshed.json();
+          setWorkList({ items: rData.items || [], total: rData.total || 0, type: "admin_ledger" });
+        }
+        // Also reload dashboard summary
+        const sumRes = await fetch(`${API_BASE}/aicte/my-work/summary`, {
+          headers: { "x-user-id": officerCode },
+          credentials: "include",
+        });
+        if (sumRes.ok) {
+          const sData = await sumRes.json();
+          setSummary(sData);
+        }
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setAdminBanner({
+          type: "error",
+          message: err.error || "Failed to record administrative final decision.",
+        });
+      }
+    } catch (e) {
+      setAdminBanner({
+        type: "error",
+        message: e.message || "Network error while executing decision.",
+      });
+    } finally {
+      setActionInProgressId(null);
+    }
+  };
 
   const handleCardClick = (targetTab) => {
     setActiveTab(targetTab);
@@ -260,17 +385,31 @@ function AicteDashboardContent() {
   const committees = userProfile?.committeeMemberships || [];
   const hasMultipleCommittees = committees.length > 1;
 
+  // Mouse move handler for interactive background blue grid
+  const handleMouseMove = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    e.currentTarget.style.setProperty("--mouse-x", `${x}px`);
+    e.currentTarget.style.setProperty("--mouse-y", `${y}px`);
+  };
+
   // Mixpanel-style Pill Tab counts
   const tabCounts = {
     all: summary?.total || (workList.type === "applications" ? workList.total : 0),
     assigned: summary?.assigned || 0,
-    delegated: summary?.delegatedToMe || 0,
     waiting: summary?.waitingOnInstitute || 0,
+    processed: summary?.processed || 0,
+    delegated: summary?.delegatedToMe || 0,
     completed: workList.type === "applications" && activeTab === "completed" ? workList.items.length : "—",
+    admin_ledger: summary?.total || (workList.type === "applications" || workList.type === "admin_ledger" ? workList.total : 0),
   };
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-10">
+    <div
+      onMouseMove={handleMouseMove}
+      className="interactive-blue-grid space-y-6 max-w-7xl mx-auto pb-10 p-3 sm:p-5 rounded-2xl transition-all"
+    >
       {/* Error state banner */}
       {error && !loading && (
         <div className="p-4 rounded-xl border border-rose-200 bg-rose-50 text-rose-800 flex items-center justify-between gap-3 shadow-2xs">
@@ -297,23 +436,20 @@ function AicteDashboardContent() {
         </div>
       )}
 
-      {/* ─── TOP OPERATIONAL BAR (Mixpanel Project & Session Header) ─── */}
-      <div className="rounded-2xl border border-slate-200/80 bg-white p-4 sm:p-5 shadow-2xs flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      {/* ─── TOP OPERATIONAL BAR (Executive Work Station) ─── */}
+      <div className="rounded-xl border border-slate-200/90 bg-white shadow-xs p-4 sm:p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4 transition-all duration-200">
         <div>
           {/* Status strip */}
           <div className="flex flex-wrap items-center gap-2 mb-2">
-            {/* Live operational badge */}
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wide uppercase bg-emerald-50 text-emerald-800 border border-emerald-200">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-              </span>
+            {/* Live operational badge with blue dot */}
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded text-[10px] font-semibold tracking-wide uppercase bg-slate-100 text-slate-800 border border-slate-200">
+              <span className="h-1.5 w-1.5 rounded-full bg-blue-600 animate-pulse" />
               Operational Station
             </span>
 
             {/* Officer ID Code */}
-            <span className="font-mono text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200 flex items-center gap-1">
-              <ShieldCheck className="h-3 w-3 text-indigo-600" />
+            <span className="font-mono text-[10px] font-medium px-2 py-0.5 rounded bg-slate-50 text-[#0F172A] border border-slate-200 flex items-center gap-1">
+              <ShieldCheck className="h-3 w-3 text-[#1E40AF]" />
               {officerCode}
             </span>
 
@@ -321,37 +457,37 @@ function AicteDashboardContent() {
             <button
               type="button"
               onClick={() => setIsAvailabilityOpen(true)}
-              className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs ${
+              className={`text-[10px] font-medium uppercase tracking-wider px-2 py-0.5 rounded border transition-all flex items-center gap-1.5 cursor-pointer ${
                 availability?.status === "AVAILABLE" || !availability
-                  ? "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100 hover:border-slate-300"
-                  : "bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100"
+                  ? "bg-slate-50 text-[#0F172A] border-slate-200 hover:bg-white hover:border-slate-300"
+                  : "bg-red-50 text-red-700 border-red-200 hover:bg-red-100"
               }`}
               title="Click to update operational availability status"
             >
               <span className={`h-1.5 w-1.5 rounded-full ${
-                availability?.status === "AVAILABLE" || !availability ? "bg-emerald-500" : "bg-amber-500"
-              }`}></span>
-              <span>Availability: <strong>{availability?.status || "AVAILABLE"}</strong></span>
+                availability?.status === "AVAILABLE" || !availability ? "bg-emerald-500" : "bg-red-600"
+              }`} />
+              <span>Availability: <strong className="font-semibold">{availability?.status || "AVAILABLE"}</strong></span>
             </button>
 
             {supervisor && (
               <span className="text-[11px] text-slate-500 hidden lg:inline pl-1">
-                Supervising Authority: <strong className="text-slate-800">{supervisor.name}</strong> ({supervisor.designation})
+                Supervising Authority: <strong className="text-[#0F172A] font-semibold">{supervisor.name}</strong> ({supervisor.designation})
               </span>
             )}
           </div>
 
-          {/* Heading */}
-          <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
+          {/* Strong Heading in deep navy */}
+          <h1 className="text-xl sm:text-2xl font-bold text-[#0F172A] tracking-tight">
             {getGreeting()}, {userProfile?.displayName || userProfile?.name || firstName}
           </h1>
 
-          <p className="text-xs text-slate-500 mt-1 flex items-center gap-2">
+          <p className="text-xs text-slate-600 mt-1 flex items-center gap-2 font-normal">
             <span>{userProfile?.designation?.title || "Approval Officer"}</span>
             <span>•</span>
             <span>{userProfile?.organizationUnit?.name || "Approval Bureau"}</span>
             <span>•</span>
-            <span className="text-indigo-600 font-medium">Aph 2024-27 Workflow Cycle</span>
+            <span className="text-[#1E40AF] font-semibold">APH 2026-27 Workflow Cycle</span>
           </p>
         </div>
 
@@ -362,9 +498,9 @@ function AicteDashboardContent() {
             <Button
               variant="outline"
               size="sm"
-              className="h-9 px-3.5 text-xs font-semibold text-slate-700 border-slate-200 hover:border-slate-300 hover:bg-slate-50 gap-2 rounded-lg shadow-2xs"
+              className="h-8 px-3 text-xs font-medium text-slate-700 border-slate-200 hover:border-slate-300 hover:bg-slate-50 gap-1.5 rounded-md"
             >
-              <Network className="h-3.5 w-3.5 text-indigo-600" />
+              <Network className="h-3.5 w-3.5 text-[#1E40AF]" />
               <span>My Work Tree</span>
             </Button>
           </Link>
@@ -373,9 +509,9 @@ function AicteDashboardContent() {
           <Button
             size="sm"
             onClick={() => handleOpenDelegation(null)}
-            className="h-9 px-3.5 text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-white gap-2 rounded-lg shadow-xs transition-all hover:-translate-y-0.5"
+            className="h-8 px-3 text-xs font-semibold bg-[#1E40AF] hover:bg-[#1E3A8A] text-white gap-1.5 rounded-md transition-all duration-150 shadow-xs"
           >
-            <UserCheck className="h-3.5 w-3.5 text-indigo-300" />
+            <UserCheck className="h-3.5 w-3.5" />
             <span>Delegate Work</span>
           </Button>
 
@@ -384,7 +520,7 @@ function AicteDashboardContent() {
             <select
               value={activeWorkspace || committees[0]?.committeeCode || ""}
               onChange={(e) => switchWorkspace(e.target.value)}
-              className="h-9 text-xs font-semibold rounded-lg border border-slate-200 bg-white px-2.5 text-slate-800 outline-none focus:border-indigo-500 shadow-2xs"
+              className="h-8 text-xs font-normal rounded-md border border-slate-200 bg-white px-2.5 text-[#0F172A] outline-none focus:border-[#1E40AF]"
             >
               {committees.map((cm) => (
                 <option key={cm.committeeCode} value={cm.committeeCode}>
@@ -396,29 +532,29 @@ function AicteDashboardContent() {
         </div>
       </div>
 
-      {/* ─── SECTION 1: MY WORK SUMMARY (Mixpanel-Style KPI Metric Cards) ─── */}
+      {/* ─── SECTION 1: MY WORK SUMMARY (Executive Metric Bento Cards) ─── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5">
-        {/* 1. Assigned to Me */}
+        {/* 1. Assigned to Me / Active Queue */}
         <div
           onClick={() => handleCardClick("assigned")}
-          className={`p-4 rounded-xl border transition-all duration-200 cursor-pointer relative overflow-hidden group ${
+          className={`p-4 rounded-xl border transition-all duration-200 cursor-pointer relative overflow-hidden group shadow-xs ${
             activeTab === "assigned"
-              ? "bg-indigo-50/40 border-indigo-500 ring-2 ring-indigo-500/20 shadow-xs"
-              : "bg-white border-slate-200/80 hover:border-slate-300 hover:shadow-xs hover:-translate-y-0.5"
+              ? "bg-blue-50/70 border-[#1E40AF] ring-1 ring-[#1E40AF]"
+              : "bg-white border-slate-200 hover:border-blue-300 hover:-translate-y-0.5"
           }`}
         >
           <div className="flex items-center justify-between mb-2">
             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-              Assigned to Me
+              Active Queue
             </span>
-            <div className={`p-1.5 rounded-lg transition-colors ${
-              activeTab === "assigned" ? "bg-indigo-600 text-white" : "bg-indigo-50 text-indigo-600 group-hover:bg-indigo-100"
+            <div className={`p-1.5 rounded-md transition-colors ${
+              activeTab === "assigned" ? "bg-[#1E40AF] text-white" : "bg-blue-50 text-[#1E40AF] group-hover:bg-blue-100"
             }`}>
               <FileText className="h-3.5 w-3.5" />
             </div>
           </div>
           <div className="flex items-baseline justify-between">
-            <span className="text-3xl font-black text-slate-900 font-mono tracking-tight">
+            <span className="text-3xl font-bold text-[#0F172A] font-mono tracking-tight">
               {loading ? (
                 <Loader2 className="h-6 w-6 animate-spin text-slate-400 inline" />
               ) : summary ? (
@@ -427,7 +563,7 @@ function AicteDashboardContent() {
                 "—"
               )}
             </span>
-            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100">
+            <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-blue-50 text-[#1E40AF] border border-blue-200">
               Active Quorum
             </span>
           </div>
@@ -440,33 +576,33 @@ function AicteDashboardContent() {
         {/* 2. Due Soon */}
         <div
           onClick={() => handleCardClick("priority")}
-          className={`p-4 rounded-xl border transition-all duration-200 cursor-pointer relative overflow-hidden group ${
+          className={`p-4 rounded-xl border transition-all duration-200 cursor-pointer relative overflow-hidden group shadow-xs ${
             activeTab === "priority"
-              ? "bg-rose-50/40 border-rose-500 ring-2 ring-rose-500/20 shadow-xs"
-              : "bg-white border-slate-200/80 hover:border-slate-300 hover:shadow-xs hover:-translate-y-0.5"
+              ? "bg-red-50/70 border-red-500 ring-1 ring-red-500"
+              : "bg-white border-slate-200 hover:border-red-300 hover:-translate-y-0.5"
           }`}
         >
           <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-rose-600">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-red-700">
               Due Soon (&lt; 72h)
             </span>
-            <div className={`p-1.5 rounded-lg transition-colors ${
-              activeTab === "priority" ? "bg-rose-600 text-white" : "bg-rose-50 text-rose-600 group-hover:bg-rose-100"
+            <div className={`p-1.5 rounded-md transition-colors ${
+              activeTab === "priority" ? "bg-red-600 text-white" : "bg-red-50 text-red-600 group-hover:bg-red-100"
             }`}>
               <Clock className="h-3.5 w-3.5" />
             </div>
           </div>
           <div className="flex items-baseline justify-between">
-            <span className="text-3xl font-black text-rose-600 font-mono tracking-tight">
+            <span className="text-3xl font-bold text-red-600 font-mono tracking-tight">
               {loading ? (
-                <Loader2 className="h-6 w-6 animate-spin text-rose-400 inline" />
+                <Loader2 className="h-6 w-6 animate-spin text-red-400 inline" />
               ) : summary ? (
                 summary.dueSoon
               ) : (
                 "—"
               )}
             </span>
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200">
+            <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-red-50 text-red-800 border border-red-200">
               SLA Risk
             </span>
           </div>
@@ -479,33 +615,33 @@ function AicteDashboardContent() {
         {/* 3. Waiting on Institute */}
         <div
           onClick={() => handleCardClick("waiting")}
-          className={`p-4 rounded-xl border transition-all duration-200 cursor-pointer relative overflow-hidden group ${
+          className={`p-4 rounded-xl border transition-all duration-200 cursor-pointer relative overflow-hidden group shadow-xs ${
             activeTab === "waiting"
-              ? "bg-amber-50/40 border-amber-500 ring-2 ring-amber-500/20 shadow-xs"
-              : "bg-white border-slate-200/80 hover:border-slate-300 hover:shadow-xs hover:-translate-y-0.5"
+              ? "bg-slate-100/70 border-slate-400 ring-1 ring-slate-400"
+              : "bg-white border-slate-200 hover:border-slate-300 hover:-translate-y-0.5"
           }`}
         >
           <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-amber-700">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-700">
               Waiting on Institute
             </span>
-            <div className={`p-1.5 rounded-lg transition-colors ${
-              activeTab === "waiting" ? "bg-amber-600 text-white" : "bg-amber-50 text-amber-600 group-hover:bg-amber-100"
+            <div className={`p-1.5 rounded-md transition-colors ${
+              activeTab === "waiting" ? "bg-slate-700 text-white" : "bg-slate-100 text-slate-700 group-hover:bg-slate-200"
             }`}>
               <AlertTriangle className="h-3.5 w-3.5" />
             </div>
           </div>
           <div className="flex items-baseline justify-between">
-            <span className="text-3xl font-black text-slate-900 font-mono tracking-tight">
+            <span className="text-3xl font-bold text-[#0F172A] font-mono tracking-tight">
               {loading ? (
-                <Loader2 className="h-6 w-6 animate-spin text-amber-400 inline" />
+                <Loader2 className="h-6 w-6 animate-spin text-slate-400 inline" />
               ) : summary ? (
                 summary.waitingOnInstitute
               ) : (
                 "—"
               )}
             </span>
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
+            <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-slate-100 text-slate-800 border border-slate-200">
               Clarifications
             </span>
           </div>
@@ -518,33 +654,33 @@ function AicteDashboardContent() {
         {/* 4. Delegated to Me */}
         <div
           onClick={() => handleCardClick("delegated")}
-          className={`p-4 rounded-xl border transition-all duration-200 cursor-pointer relative overflow-hidden group ${
+          className={`p-4 rounded-xl border transition-all duration-200 cursor-pointer relative overflow-hidden group shadow-xs ${
             activeTab === "delegated"
-              ? "bg-purple-50/40 border-purple-500 ring-2 ring-purple-500/20 shadow-xs"
-              : "bg-white border-slate-200/80 hover:border-slate-300 hover:shadow-xs hover:-translate-y-0.5"
+              ? "bg-blue-50/70 border-[#1E40AF] ring-1 ring-[#1E40AF]"
+              : "bg-white border-slate-200 hover:border-blue-300 hover:-translate-y-0.5"
           }`}
         >
           <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-purple-700">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-[#1E40AF]">
               Delegated to Me
             </span>
-            <div className={`p-1.5 rounded-lg transition-colors ${
-              activeTab === "delegated" ? "bg-purple-600 text-white" : "bg-purple-50 text-purple-600 group-hover:bg-purple-100"
+            <div className={`p-1.5 rounded-md transition-colors ${
+              activeTab === "delegated" ? "bg-[#1E40AF] text-white" : "bg-blue-50 text-[#1E40AF] group-hover:bg-blue-100"
             }`}>
               <UserCheck className="h-3.5 w-3.5" />
             </div>
           </div>
           <div className="flex items-baseline justify-between">
-            <span className="text-3xl font-black text-purple-700 font-mono tracking-tight">
+            <span className="text-3xl font-bold text-[#0F172A] font-mono tracking-tight">
               {loading ? (
-                <Loader2 className="h-6 w-6 animate-spin text-purple-400 inline" />
+                <Loader2 className="h-6 w-6 animate-spin text-[#1E40AF] inline" />
               ) : summary ? (
                 summary.delegatedToMe
               ) : (
                 "—"
               )}
             </span>
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200">
+            <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-blue-50 text-[#1E40AF] border border-blue-200">
               Co-Review
             </span>
           </div>
@@ -555,39 +691,39 @@ function AicteDashboardContent() {
         </div>
       </div>
 
-      {/* ─── SECTION 2: PRIORITY WORK (Mixpanel-Style Intelligence & Milestone Funnel) ─── */}
+      {/* ─── SECTION 2: PRIORITY WORK (Statutory Priority Work Bench) ─── */}
       <div className="space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
           <div className="flex items-center gap-2.5">
-            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-900 flex items-center gap-1.5">
-              <Zap className="h-3.5 w-3.5 text-amber-500 fill-amber-500" />
+            <h2 className="text-xs font-bold uppercase tracking-wider text-[#0F172A] flex items-center gap-1.5">
+              <Zap className="h-3.5 w-3.5 text-[#1E40AF]" />
               Priority Work Bench
             </h2>
-            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200">
+            <span className="px-2.5 py-0.5 rounded text-[10px] font-semibold bg-red-50 text-red-700 border border-red-200">
               {priorityItems.length} Urgent / Action Mandated
             </span>
           </div>
-          <span className="text-[11px] text-slate-400">
+          <span className="text-[11px] text-slate-500 font-normal">
             Ranked by regulatory SLA urgency, deficiency escalations, and statutory milestones
           </span>
         </div>
 
         {loading ? (
-          <Card className="p-8 text-center border border-slate-200/80 bg-white rounded-2xl shadow-2xs">
-            <Loader2 className="h-8 w-8 animate-spin text-slate-400 mx-auto mb-2" />
-            <p className="text-xs text-slate-500 font-medium">Evaluating statutory priority work...</p>
+          <Card className="p-8 text-center border border-slate-200 bg-white rounded-xl shadow-xs">
+            <Loader2 className="h-7 w-7 animate-spin text-slate-400 mx-auto mb-2" />
+            <p className="text-xs text-slate-500 font-normal">Evaluating statutory priority work...</p>
           </Card>
         ) : error ? (
-          <Card className="p-8 text-center border border-rose-200 bg-rose-50/50 rounded-2xl shadow-2xs">
-            <AlertCircle className="h-8 w-8 text-rose-500 mx-auto mb-2" />
-            <p className="text-sm font-bold text-rose-900">Priority Work Unavailable</p>
+          <Card className="p-8 text-center border border-rose-200 bg-rose-50/50 rounded-xl">
+            <AlertCircle className="h-7 w-7 text-rose-500 mx-auto mb-2" />
+            <p className="text-sm font-semibold text-rose-900">Priority Work Unavailable</p>
             <p className="text-xs text-rose-600 mt-1 max-w-md mx-auto">{error}</p>
           </Card>
         ) : priorityItems.length === 0 ? (
-          <Card className="p-8 text-center border border-slate-200/80 bg-white rounded-2xl shadow-2xs">
-            <CheckCircle2 className="h-9 w-9 text-emerald-500 mx-auto mb-2.5" />
-            <p className="text-sm font-bold text-slate-900">Priority Queue Clear</p>
-            <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
+          <Card className="p-8 text-center border border-slate-200 bg-white rounded-xl shadow-xs">
+            <CheckCircle2 className="h-8 w-8 text-emerald-600 mx-auto mb-2.5" />
+            <p className="text-sm font-semibold text-[#0F172A]">Priority Queue Clear</p>
+            <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto font-normal">
               No urgent regulatory deadlines or escalations pending. Routine queue items are available below.
             </p>
           </Card>
@@ -598,7 +734,7 @@ function AicteDashboardContent() {
               return (
                 <div
                   key={item.id}
-                  className="p-4 rounded-xl border border-slate-200/90 bg-white hover:border-slate-300 hover:shadow-xs transition-all flex flex-col justify-between space-y-3 relative group"
+                  className="p-4 rounded-xl border border-slate-200 bg-white hover:border-blue-300 hover:-translate-y-0.5 transition-all duration-200 flex flex-col justify-between space-y-3 relative group shadow-xs"
                 >
                   <div>
                     {/* Top row: Application Number + Priority Badge + SLA */}
@@ -606,29 +742,29 @@ function AicteDashboardContent() {
                       <div className="flex items-center gap-2">
                         <Link
                           href={`/aicte/applications/${item.id}`}
-                          className="font-mono font-bold text-xs text-indigo-600 hover:text-indigo-800 transition-colors"
+                          className="font-mono font-bold text-xs text-[#1E40AF] hover:text-[#1E3A8A] hover:underline transition-all"
                         >
                           {item.applicationNumber}
                         </Link>
-                        <span className="text-[10px] text-slate-400 font-mono">
+                        <span className="text-[10px] text-slate-500 font-mono">
                           • {item.category || "REGULATORY"}
                         </span>
                       </div>
 
                       <div className="flex items-center gap-1.5">
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider flex items-center gap-1 ${
+                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded uppercase tracking-wider flex items-center gap-1 ${
                           item.priority === "URGENT"
-                            ? "bg-rose-50 text-rose-700 border border-rose-200"
-                            : "bg-amber-50 text-amber-800 border border-amber-200"
+                            ? "bg-red-50 text-red-700 border border-red-200"
+                            : "bg-slate-100 text-slate-800 border border-slate-200"
                         }`}>
                           <span className={`h-1.5 w-1.5 rounded-full ${
-                            item.priority === "URGENT" ? "bg-rose-500 animate-pulse" : "bg-amber-500"
-                          }`}></span>
+                            item.priority === "URGENT" ? "bg-red-600 animate-pulse" : "bg-amber-500"
+                          }`} />
                           {item.priority}
                         </span>
 
                         {item.dueAt && (
-                          <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 text-[10px] font-mono border border-slate-200 font-medium">
+                          <span className="px-2 py-0.5 rounded bg-slate-50 text-[#0F172A] text-[10px] font-mono border border-slate-200 font-normal">
                             <SlaCountdown dueAt={item.dueAt} />
                           </span>
                         )}
@@ -636,21 +772,21 @@ function AicteDashboardContent() {
                     </div>
 
                     {/* Institution title */}
-                    <h3 className="text-sm font-bold text-slate-900 group-hover:text-indigo-950 transition-colors line-clamp-1">
+                    <h3 className="text-sm font-bold text-[#0F172A] group-hover:text-[#1E40AF] transition-colors line-clamp-1">
                       {item.institutionName}
                     </h3>
 
                     {/* Priority Reason Pill */}
                     <div className="mt-2 flex items-center gap-2">
-                      <span className="px-2 py-0.5 rounded-md bg-slate-100/90 text-slate-700 text-[10px] font-medium border border-slate-200/70 truncate max-w-full">
+                      <span className="px-2 py-0.5 rounded bg-slate-50 text-slate-600 text-[10px] font-normal border border-slate-200 truncate max-w-full">
                         {item.priorityReason || "Statutory stage review in progress"}
                       </span>
                     </div>
 
-                    {/* Mixpanel-Style Funnel Stage Progress Bar */}
+                    {/* Funnel Stage Progress Bar */}
                     <div className="mt-3 pt-2.5 border-t border-slate-100">
-                      <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1.5 font-medium">
-                        <span>Workflow Stage: <strong className="text-slate-700">{item.currentStageName}</strong></span>
+                      <div className="flex items-center justify-between text-[10px] text-slate-500 mb-1.5 font-normal">
+                        <span>Workflow Stage: <strong className="text-[#0F172A] font-semibold">{item.currentStageName}</strong></span>
                         <span className="font-mono">{currentStep} of 4</span>
                       </div>
 
@@ -659,16 +795,16 @@ function AicteDashboardContent() {
                         {FUNNEL_STAGES.map((st) => (
                           <div key={st.step} className="space-y-1">
                             <div
-                              className={`h-1.5 rounded-full transition-all ${
+                              className={`h-1.5 rounded-full transition-all duration-200 ${
                                 currentStep >= st.step
                                   ? currentStep === st.step
-                                    ? "bg-indigo-600"
-                                    : "bg-indigo-300"
-                                  : "bg-slate-100"
+                                    ? "bg-[#1E40AF]"
+                                    : "bg-blue-300"
+                                  : "bg-slate-200"
                               }`}
                             />
                             <p className={`text-[9px] truncate text-center ${
-                              currentStep === st.step ? "font-bold text-indigo-700" : "text-slate-400"
+                              currentStep === st.step ? "font-bold text-[#1E40AF]" : "text-slate-500"
                             }`}>
                               {st.label}
                             </p>
@@ -680,20 +816,20 @@ function AicteDashboardContent() {
 
                   {/* Card Footer Actions */}
                   <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
-                    <span className="text-[11px] text-slate-500 truncate max-w-[170px]">
-                      Next: <strong className="text-slate-800">{item.nextLevelName || "Approval Council"}</strong>
+                    <span className="text-[11px] text-slate-500 truncate max-w-[170px] font-normal">
+                      Next: <strong className="text-[#0F172A] font-medium">{item.nextLevelName || "Approval Council"}</strong>
                     </span>
                     <div className="flex items-center gap-2">
                       <Button
                         size="sm"
                         variant="ghost"
                         onClick={() => handleOpenDelegation(item)}
-                        className="h-7 text-xs px-2 text-slate-600 hover:text-slate-900 font-semibold"
+                        className="h-7 text-xs px-2 text-slate-600 hover:text-[#0F172A] font-normal"
                       >
                         Delegate
                       </Button>
                       <Link href={`/aicte/applications/${item.id}`}>
-                        <Button size="sm" className="h-7 text-xs px-3 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-lg shadow-2xs gap-1">
+                        <Button size="sm" className="h-7 text-xs px-3 bg-[#1E40AF] hover:bg-[#1E3A8A] text-white font-medium rounded-md transition-all duration-150 gap-1 shadow-xs">
                           <span>Review Case</span>
                           <ArrowRight className="h-3 w-3" />
                         </Button>
@@ -707,37 +843,39 @@ function AicteDashboardContent() {
         )}
       </div>
 
-      {/* ─── SECTION 3: MY WORK QUEUE (Mixpanel-Style Recessed Segmented Controls + Dense Grid) ─── */}
-      <Card className="border border-slate-200/90 shadow-2xs bg-white rounded-2xl overflow-hidden">
-        {/* Recessed Mixpanel-Style Segmented Control Bar */}
-        <div className="p-3.5 border-b border-slate-200/80 bg-slate-50/70 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-          {/* Segmented Pills */}
-          <div className="bg-slate-200/70 p-1 rounded-xl flex items-center overflow-x-auto gap-0.5">
+      {/* ─── SECTION 3: MY WORK QUEUE (Segmented Controls & Data Grid) ─── */}
+      <Card className="border border-slate-200/90 bg-white rounded-xl shadow-xs overflow-hidden">
+        {/* Segmented Control Bar */}
+        <div className="p-3 border-b border-slate-200/90 bg-slate-50/70 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+          {/* Segmented Control Pills */}
+          <div className="bg-slate-200/60 p-1 rounded-lg flex items-center overflow-x-auto gap-0.5">
             {[
               { id: "all", label: "All Work", count: tabCounts.all },
-              { id: "assigned", label: "Assigned to Me", count: tabCounts.assigned },
-              { id: "delegated", label: "Delegated Tasks", count: tabCounts.delegated },
+              { id: "assigned", label: "Active Queue", count: tabCounts.assigned },
               { id: "waiting", label: "Waiting on Institute", count: tabCounts.waiting },
+              { id: "processed", label: "Processed Applications", count: tabCounts.processed },
+              { id: "delegated", label: "Delegated Tasks", count: tabCounts.delegated },
               { id: "completed", label: "Completed Orders", count: tabCounts.completed },
+              { id: "admin_ledger", label: "Admin Master Decision Ledger", count: tabCounts.admin_ledger },
             ].map((tab) => {
               const isActive = activeTab === tab.id;
               return (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all duration-150 flex items-center gap-1.5 cursor-pointer ${
+                  className={`px-3 py-1.5 rounded-md text-xs transition-all duration-150 flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
                     isActive
-                      ? "bg-white text-slate-950 shadow-2xs font-bold border border-slate-200/60"
-                      : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+                      ? "bg-white text-[#0F172A] font-bold shadow-xs border border-slate-200"
+                      : "text-slate-600 hover:text-[#0F172A] hover:bg-white/60"
                   }`}
                 >
                   <span>{tab.label}</span>
                   {tab.count !== "—" && (
                     <span
-                      className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full font-bold ${
+                      className={`text-[10px] font-mono px-1.5 py-0.2 rounded font-semibold ${
                         isActive
-                          ? "bg-slate-900 text-white"
-                          : "bg-slate-300/80 text-slate-700"
+                          ? "bg-[#1E40AF] text-white"
+                          : "bg-slate-200 text-slate-700"
                       }`}
                     >
                       {tab.count}
@@ -755,7 +893,7 @@ function AicteDashboardContent() {
               <select
                 value={priorityFilter}
                 onChange={(e) => setPriorityFilter(e.target.value)}
-                className="h-8 text-xs font-semibold rounded-lg border border-slate-200 bg-white px-2.5 text-slate-700 outline-none focus:border-indigo-500 shadow-2xs"
+                className="h-8 text-xs font-normal rounded-[6px] border border-[#E5EDF5] bg-white px-2.5 text-[#061B31] outline-none focus:border-[#1E40AF]"
               >
                 <option value="ALL">All Priorities</option>
                 <option value="URGENT">Urgent Only</option>
@@ -768,7 +906,7 @@ function AicteDashboardContent() {
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value)}
-              className="h-8 text-xs font-semibold rounded-lg border border-slate-200 bg-white px-2.5 text-slate-700 outline-none focus:border-indigo-500 shadow-2xs"
+              className="h-8 text-xs font-normal rounded-[6px] border border-[#E5EDF5] bg-white px-2.5 text-[#061B31] outline-none focus:border-[#1E40AF]"
             >
               <option value="sla">Sort: SLA Earliest</option>
               <option value="priority">Sort: Highest Priority</option>
@@ -783,11 +921,35 @@ function AicteDashboardContent() {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search ID, institute, task..."
-                className="w-full h-8 pl-8 pr-3 rounded-lg border border-slate-200 bg-white text-xs text-slate-800 outline-none focus:border-indigo-500 placeholder:text-slate-400 shadow-2xs"
+                className="w-full h-8 pl-8 pr-3 rounded-[6px] border border-[#E5EDF5] bg-white text-xs text-[#061B31] outline-none focus:border-[#1E40AF] placeholder:text-slate-400"
               />
             </div>
           </div>
         </div>
+
+        {/* Admin Action Feedback Banner */}
+        {adminBanner && (
+          <div className={`p-3.5 px-4 border-b flex items-center justify-between text-xs transition-all ${
+            adminBanner.type === "success"
+              ? "bg-emerald-50 border-emerald-200 text-emerald-900"
+              : "bg-red-50 border-red-200 text-red-900"
+          }`}>
+            <div className="flex items-center gap-2">
+              {adminBanner.type === "success" ? (
+                <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+              ) : (
+                <AlertCircle className="h-4 w-4 text-red-600 shrink-0" />
+              )}
+              <span className="font-medium">{adminBanner.message}</span>
+            </div>
+            <button
+              onClick={() => setAdminBanner(null)}
+              className="text-slate-500 hover:text-slate-800 font-bold ml-4 cursor-pointer"
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
         {/* Work List Content */}
         {workList.type === "delegations" ? (
@@ -795,51 +957,53 @@ function AicteDashboardContent() {
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs border-collapse">
               <thead>
-                <tr className="border-b border-slate-200 bg-slate-50/90 text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                  <th className="py-3 px-4">Task Scope & Title</th>
-                  <th className="py-3 px-4">Application ID</th>
-                  <th className="py-3 px-4">Colleague Assignment</th>
-                  <th className="py-3 px-4">Priority & Context</th>
-                  <th className="py-3 px-4">Deadline</th>
-                  <th className="py-3 px-4">Status</th>
-                  <th className="py-3 px-4 text-right">Action</th>
+                <tr className="border-b border-[#E5EDF5] bg-[#F8FAFD] text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                  <th className="py-3 px-4 font-semibold">Task Scope & Title</th>
+                  <th className="py-3 px-4 font-semibold">Application ID</th>
+                  <th className="py-3 px-4 font-semibold">Colleague Assignment</th>
+                  <th className="py-3 px-4 font-semibold">Priority & Context</th>
+                  <th className="py-3 px-4 font-semibold">Deadline</th>
+                  <th className="py-3 px-4 font-semibold">Status</th>
+                  <th className="py-3 px-4 text-right font-semibold">Action</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-[#E5EDF5]/70">
                 {filteredItems.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="py-14 text-center text-slate-500">
                       <UserCheck className="h-8 w-8 text-slate-300 mx-auto mb-2" />
-                      <p className="text-sm font-bold text-slate-800">No delegated tasks found</p>
-                      <p className="text-xs text-slate-400 mt-0.5">Tasks delegated to or by your desk will display here</p>
+                      <p className="text-sm font-light text-[#061B31]">No delegated tasks found</p>
+                      <p className="text-xs text-slate-400 mt-0.5 font-normal">Tasks delegated to or by your desk will display here</p>
                     </td>
                   </tr>
                 ) : (
                   filteredItems.map((task) => (
-                    <tr key={task.id} className="hover:bg-indigo-50/20 transition-colors">
-                      <td className="py-3 px-4 font-semibold text-slate-900 max-w-xs">
-                        <p className="font-bold text-slate-900">{task.taskTitle}</p>
+                    <tr key={task.id} className="hover:bg-[#F8FAFD] transition-colors duration-150">
+                      <td className="py-3 px-4 font-medium text-[#061B31] max-w-xs">
+                        <p className="font-medium text-[#061B31]">{task.taskTitle}</p>
                         <p className="text-[11px] text-slate-400 font-normal truncate">{task.taskDescription}</p>
                       </td>
-                      <td className="py-3 px-4 font-mono font-bold text-indigo-600">
-                        <Link href={`/aicte/applications/${task.applicationId}`} className="hover:underline">
+                      <td className="py-3 px-4 font-mono font-medium text-[#1E40AF]">
+                        <Link href={`/aicte/applications/${task.applicationId}`} className="hover:text-[#1E3A8A] hover:underline transition-all">
                           {task.applicationNumber}
                         </Link>
                       </td>
                       <td className="py-3 px-4 text-slate-700">
                         {task.isDelegatedToMe ? (
                           <span className="text-xs">
-                            From: <strong className="text-slate-900">{task.delegatedBy?.name}</strong>
+                            From: <strong className="text-[#061B31] font-medium">{task.delegatedBy?.name}</strong>
                           </span>
                         ) : (
                           <span className="text-xs">
-                            To: <strong className="text-slate-900">{task.delegatedTo?.name}</strong>
+                            To: <strong className="text-[#061B31] font-medium">{task.delegatedTo?.name}</strong>
                           </span>
                         )}
                       </td>
                       <td className="py-3 px-4">
-                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${
-                          task.priority === "URGENT" ? "bg-rose-100 text-rose-800 border border-rose-200" : "bg-slate-100 text-slate-700"
+                        <span className={`text-[10px] font-medium px-2 py-0.5 rounded-[4px] ${
+                          task.priority === "URGENT"
+                            ? "bg-red-50 text-red-700 border border-red-200"
+                            : "bg-[#F8FAFD] text-[#061B31] border border-[#E5EDF5]"
                         }`}>
                           {task.priority}
                         </span>
@@ -849,19 +1013,19 @@ function AicteDashboardContent() {
                         {task.deadline ? new Date(task.deadline).toLocaleDateString("en-IN") : "—"}
                       </td>
                       <td className="py-3 px-4">
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                        <span className={`text-[10px] font-medium px-2 py-0.5 rounded-[4px] ${
                           task.status === "COMPLETED"
-                            ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
+                            ? "bg-emerald-50 text-[#006633] border border-emerald-200"
                             : task.status === "PENDING"
-                            ? "bg-amber-100 text-amber-800 border border-amber-200 animate-pulse"
-                            : "bg-blue-100 text-blue-800 border border-blue-200"
+                            ? "bg-amber-50 text-amber-800 border border-amber-200"
+                            : "bg-blue-50 text-blue-800 border border-blue-200"
                         }`}>
                           {task.status}
                         </span>
                       </td>
                       <td className="py-3 px-4 text-right">
                         <Link href={`/aicte/applications/${task.applicationId}`}>
-                          <Button size="sm" className="h-7 text-xs bg-slate-900 hover:bg-slate-800 text-white font-medium rounded-lg">
+                          <Button size="sm" className="h-7 text-xs bg-[#1E40AF] hover:bg-[#1E3A8A] text-white font-normal rounded-[5px] transition-all">
                             Open Task
                           </Button>
                         </Link>
@@ -872,19 +1036,170 @@ function AicteDashboardContent() {
               </tbody>
             </table>
           </div>
+        ) : workList.type === "admin_ledger" ? (
+          // Admin Master Decision Ledger Table
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-100/90 text-[11px] font-bold uppercase tracking-wider text-slate-700">
+                  <th className="py-3 px-4 font-bold">Application & Institution</th>
+                  <th className="py-3 px-4 font-bold">Current Stage & Status</th>
+                  <th className="py-3 px-4 font-bold min-w-[280px]">Stage-by-Stage History Summary</th>
+                  <th className="py-3 px-4 font-bold">Hearing Committee Rec</th>
+                  <th className="py-3 px-4 font-bold text-center">Council Final Decision (Yes / No)</th>
+                  <th className="py-3 px-4 text-right font-bold">Dossier</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {listLoading ? (
+                  <tr>
+                    <td colSpan={6} className="py-14 text-center text-slate-500">
+                      <Loader2 className="h-7 w-7 animate-spin text-slate-400 mx-auto mb-2" />
+                      <p className="text-xs text-slate-500 font-normal">Loading administrative ledger...</p>
+                    </td>
+                  </tr>
+                ) : filteredItems.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="py-14 text-center text-slate-500">
+                      <Inbox className="h-8 w-8 text-slate-300 mx-auto mb-2" />
+                      <p className="text-sm font-semibold text-[#0F172A]">No applications found in ledger</p>
+                    </td>
+                  </tr>
+                ) : (
+                  filteredItems.map((app) => {
+                    const stageSummary = getStageSummary(app);
+                    const hearingBadge = getHearingRecommendationBadge(app);
+                    const isDecided = app.status === "approved" || app.status === "rejected" || app.decision;
+                    const isApproved = app.status === "approved" || app.decision?.outcome === "APPROVED";
+                    const isProcessing = actionInProgressId === app.id;
+
+                    return (
+                      <tr key={app.id} className="hover:bg-slate-50/80 transition-colors duration-150">
+                        {/* 1. Application & Institute */}
+                        <td className="py-3.5 px-4">
+                          <div className="flex items-center gap-1.5 font-mono font-bold text-[#0F172A]">
+                            <Link href={`/aicte/applications/${app.id}`} className="text-[#1E40AF] hover:text-[#1E3A8A] hover:underline">
+                              {app.applicationNumber}
+                            </Link>
+                          </div>
+                          <p className="font-bold text-[#0F172A] mt-0.5 max-w-xs truncate">
+                            {app.institutionName}
+                          </p>
+                          <p className="text-[11px] text-slate-500 mt-0.5">
+                            {app.regionName || "Western Region"} • {getApplicationCategoryLabel(app.category || app.applicationCategory)}
+                          </p>
+                        </td>
+
+                        {/* 2. Current Stage & Regulatory Status */}
+                        <td className="py-3.5 px-4">
+                          <p className="font-semibold text-[#0F172A]">{app.currentStageName || "Scrutiny"}</p>
+                          <div className="mt-1">
+                            <StatusBadge status={app.status} />
+                          </div>
+                        </td>
+
+                        {/* 3. Stage-by-Stage History Summary Column */}
+                        <td className="py-3.5 px-4 text-[11px]">
+                          <div className="space-y-1.5 max-w-sm">
+                            <div className="flex items-start gap-1.5">
+                              <span className="font-semibold text-slate-700 shrink-0 w-16">Scrutiny:</span>
+                              <span className="text-slate-600 truncate">{stageSummary.scrutiny}</span>
+                            </div>
+                            <div className="flex items-start gap-1.5">
+                              <span className="font-semibold text-slate-700 shrink-0 w-16">Hearing:</span>
+                              <span className="text-slate-600 truncate">{stageSummary.hearing}</span>
+                            </div>
+                            <div className="flex items-start gap-1.5">
+                              <span className="font-semibold text-slate-700 shrink-0 w-16">Decision:</span>
+                              <span className="text-slate-600 truncate">{stageSummary.decision}</span>
+                            </div>
+                          </div>
+                        </td>
+
+                        {/* 4. Hearing Committee Recommendation */}
+                        <td className="py-3.5 px-4">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border ${hearingBadge.color}`}>
+                            {hearingBadge.label}
+                          </span>
+                        </td>
+
+                        {/* 5. Final Decision (Yes / No) with Backend Connection */}
+                        <td className="py-3.5 px-4 text-center">
+                          {isDecided ? (
+                            <div className="inline-flex flex-col items-center">
+                              {isApproved ? (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-300">
+                                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                                  YES — APPROVED
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold bg-rose-50 text-rose-800 border border-rose-300">
+                                  <AlertCircle className="h-3.5 w-3.5 text-rose-600" />
+                                  NO — REJECTED
+                                </span>
+                              )}
+                              <span className="text-[10px] text-slate-400 mt-0.5">
+                                Order Dispatched
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="flex items-center justify-center gap-1.5">
+                              <Button
+                                size="sm"
+                                disabled={isProcessing}
+                                onClick={() => handleAdminQuickDecision(app.id, "approved")}
+                                className="h-7 text-xs px-2.5 bg-emerald-700 hover:bg-emerald-800 text-white font-semibold rounded-md shadow-xs gap-1 cursor-pointer"
+                                title="Approve Application (Final Yes) - Dispatches LoA/EoA to Institute & completes queue"
+                              >
+                                {isProcessing ? (
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : (
+                                  <CheckCircle2 className="h-3 w-3" />
+                                )}
+                                <span>Yes (Approve)</span>
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={isProcessing}
+                                onClick={() => handleAdminQuickDecision(app.id, "rejected")}
+                                className="h-7 text-xs px-2 text-rose-700 border-rose-200 hover:bg-rose-50 font-semibold rounded-md cursor-pointer"
+                                title="Reject Application (Final No) - Issues rejection letter"
+                              >
+                                <span>No (Reject)</span>
+                              </Button>
+                            </div>
+                          )}
+                        </td>
+
+                        {/* 6. Review Dossier */}
+                        <td className="py-3.5 px-4 text-right">
+                          <Link href={`/aicte/applications/${app.id}`}>
+                            <Button size="sm" className="h-7 text-xs px-2.5 bg-[#1E40AF] hover:bg-[#1E3A8A] text-white font-medium rounded-md transition-all shadow-xs">
+                              Review
+                            </Button>
+                          </Link>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
         ) : (
           // Applications List Table
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs border-collapse">
               <thead>
-                <tr className="border-b border-slate-200 bg-slate-50/90 text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                  <th className="py-3 px-4">Application ID</th>
-                  <th className="py-3 px-4">Institution & Region</th>
-                  <th className="py-3 px-4">Statutory Workflow Stage</th>
-                  <th className="py-3 px-4">Priority & Escalation</th>
-                  <th className="py-3 px-4">Regulatory Status</th>
-                  <th className="py-3 px-4">SLA Countdown</th>
-                  <th className="py-3 px-4 text-right">Action</th>
+                <tr className="border-b border-slate-200 bg-slate-100/90 text-[11px] font-bold uppercase tracking-wider text-slate-700">
+                  <th className="py-3 px-4 font-bold">Application ID</th>
+                  <th className="py-3 px-4 font-bold">Institution & Region</th>
+                  <th className="py-3 px-4 font-bold">Statutory Workflow Stage</th>
+                  <th className="py-3 px-4 font-bold">Priority & Escalation</th>
+                  <th className="py-3 px-4 font-bold">Regulatory Status</th>
+                  <th className="py-3 px-4 font-bold">SLA Countdown</th>
+                  <th className="py-3 px-4 text-right font-bold">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -892,50 +1207,50 @@ function AicteDashboardContent() {
                   <tr>
                     <td colSpan={7} className="py-14 text-center text-slate-500">
                       <Loader2 className="h-7 w-7 animate-spin text-slate-400 mx-auto mb-2" />
-                      <p className="text-xs text-slate-500 font-medium">Loading applications...</p>
+                      <p className="text-xs text-slate-500 font-normal">Loading applications...</p>
                     </td>
                   </tr>
                 ) : filteredItems.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="py-14 text-center text-slate-500">
                       <Inbox className="h-8 w-8 text-slate-300 mx-auto mb-2" />
-                      <p className="text-sm font-bold text-slate-800">No applications match current filters</p>
-                      <p className="text-xs text-slate-400 mt-0.5">Try switching queue tabs or resetting your search term</p>
+                      <p className="text-sm font-semibold text-[#0F172A]">No applications match current filters</p>
+                      <p className="text-xs text-slate-500 mt-0.5 font-normal">Try switching queue tabs or resetting your search term</p>
                     </td>
                   </tr>
                 ) : (
                   filteredItems.map((app) => (
-                    <tr key={app.id} className="hover:bg-indigo-50/20 transition-colors">
-                      <td className="py-3 px-4 font-mono font-bold text-slate-900">
-                        <Link href={`/aicte/applications/${app.id}`} className="hover:underline text-indigo-600 flex items-center gap-1">
+                    <tr key={app.id} className="hover:bg-slate-50/80 transition-colors duration-150">
+                      <td className="py-3 px-4 font-mono font-bold text-[#0F172A]">
+                        <Link href={`/aicte/applications/${app.id}`} className="text-[#1E40AF] hover:text-[#1E3A8A] hover:underline transition-all flex items-center gap-1">
                           {app.applicationNumber}
                         </Link>
                       </td>
                       <td className="py-3 px-4">
-                        <p className="font-bold text-slate-900 truncate max-w-xs">
+                        <p className="font-bold text-[#0F172A] truncate max-w-xs">
                           {app.institutionName}
                         </p>
-                        <p className="text-[11px] text-slate-400">{app.regionName || "Western Region"} • {getApplicationCategoryLabel(app.category || app.applicationCategory)}</p>
+                        <p className="text-[11px] text-slate-500">{app.regionName || "Western Region"} • {getApplicationCategoryLabel(app.category || app.applicationCategory)}</p>
                       </td>
                       <td className="py-3 px-4">
-                        <p className="font-semibold text-slate-800">{app.currentStageName}</p>
+                        <p className="font-medium text-[#0F172A]">{app.currentStageName}</p>
                         {app.nextLevelName && (
-                          <div className="flex items-center gap-1 mt-0.5 text-[10px] text-indigo-600 font-medium">
+                          <div className="flex items-center gap-1 mt-0.5 text-[10px] text-[#1E40AF] font-medium">
                             <ArrowRight className="h-2.5 w-2.5" /> Next: {app.nextLevelName}
                           </div>
                         )}
                       </td>
                       <td className="py-3 px-4">
-                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${
+                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded ${
                           app.priority === "URGENT"
-                            ? "bg-rose-100 text-rose-800 border border-rose-200"
+                            ? "bg-red-50 text-red-700 border border-red-200"
                             : app.priority === "IMPORTANT"
-                            ? "bg-amber-100 text-amber-800 border border-amber-200"
-                            : "bg-slate-100 text-slate-700"
+                            ? "bg-amber-50 text-amber-800 border border-amber-200"
+                            : "bg-slate-100 text-slate-800 border border-slate-200"
                         }`}>
                           {app.priority}
                         </span>
-                        <p className="text-[10px] text-slate-500 mt-0.5 truncate max-w-[150px]">
+                        <p className="text-[10px] text-slate-400 mt-0.5 truncate max-w-[150px]">
                           {app.priorityReason}
                         </p>
                       </td>
@@ -951,12 +1266,12 @@ function AicteDashboardContent() {
                             size="sm"
                             variant="ghost"
                             onClick={() => handleOpenDelegation(app)}
-                            className="h-7 text-xs px-2 text-slate-600 hover:text-slate-900 font-semibold"
+                            className="h-7 text-xs px-2 text-slate-600 hover:text-[#0F172A] font-normal"
                           >
                             Delegate
                           </Button>
                           <Link href={`/aicte/applications/${app.id}`}>
-                            <Button size="sm" className="h-7 text-xs px-2.5 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-lg shadow-2xs">
+                            <Button size="sm" className="h-7 text-xs px-2.5 bg-[#1E40AF] hover:bg-[#1E3A8A] text-white font-medium rounded-md transition-all shadow-xs">
                               Review
                             </Button>
                           </Link>
@@ -971,25 +1286,25 @@ function AicteDashboardContent() {
         )}
 
         {/* Footer info strip */}
-        <div className="p-3 border-t border-slate-100 bg-slate-50/50 flex items-center justify-between text-xs text-slate-500">
-          <span className="font-medium">Displaying {filteredItems.length} active regulatory items</span>
+        <div className="p-3 border-t border-[#E5EDF5] bg-[#F8FAFD] flex items-center justify-between text-xs text-slate-500 font-normal">
+          <span>Displaying {filteredItems.length} active regulatory items</span>
           <span className="font-mono text-[11px] text-slate-400">AICTE Approval Grid v2.4 • Live Sync</span>
         </div>
       </Card>
 
-      {/* ─── SECTION 4: HIERARCHY & BUREAU WORKLOAD (Mixpanel-Style Team Insights) ─── */}
+      {/* ─── SECTION 4: HIERARCHY & BUREAU WORKLOAD (Stripe Administrative Architecture) ─── */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Work Tree Snapshot */}
-        <Card className="p-4 sm:p-5 border border-slate-200/90 shadow-2xs bg-white rounded-2xl space-y-3.5">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+        <Card className="p-4 sm:p-5 border border-slate-200/90 bg-white/92 backdrop-blur-xs rounded-xl shadow-xs space-y-3.5">
+          <div className="flex items-center justify-between border-b border-slate-200 pb-3">
             <div className="flex items-center gap-2">
-              <Network className="h-4 w-4 text-indigo-600" />
-              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900">
+              <Network className="h-4 w-4 text-[#1E40AF]" />
+              <h3 className="text-xs font-bold uppercase tracking-wider text-[#0F172A]">
                 Official Hierarchy Flow
               </h3>
             </div>
             <Link href="/aicte/my-work-tree">
-              <Button variant="ghost" size="sm" className="h-7 text-xs text-indigo-600 font-bold p-0 hover:text-indigo-800">
+              <Button variant="ghost" size="sm" className="h-7 text-xs text-[#1E40AF] font-semibold p-0 hover:text-[#1E3A8A]">
                 View Full Tree →
               </Button>
             </Link>
@@ -997,56 +1312,56 @@ function AicteDashboardContent() {
 
           <div className="space-y-2 text-xs">
             {supervisor ? (
-              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80 flex items-center justify-between">
+              <div className="p-3 rounded-[6px] bg-slate-50 border border-slate-200 flex items-center justify-between">
                 <div className="flex items-center gap-2.5">
-                  <div className="h-8 w-8 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center font-bold text-xs">
+                  <div className="h-8 w-8 rounded-[4px] bg-slate-200 text-[#0F172A] flex items-center justify-center font-bold text-xs">
                     {supervisor.name.split(" ").map(n => n[0]).join("")}
                   </div>
                   <div>
-                    <span className="text-[10px] text-slate-400 font-bold uppercase">Supervising Authority</span>
-                    <p className="font-bold text-slate-900">{supervisor.name}</p>
-                    <p className="text-[11px] text-slate-500">{supervisor.designation} • {supervisor.organizationUnit}</p>
+                    <span className="text-[10px] text-slate-500 font-semibold uppercase">Supervising Authority</span>
+                    <p className="font-bold text-[#0F172A]">{supervisor.name}</p>
+                    <p className="text-[11px] text-slate-500 font-normal">{supervisor.designation} • {supervisor.organizationUnit}</p>
                   </div>
                 </div>
-                <span className="text-[10px] font-mono text-slate-400 bg-white px-2 py-0.5 rounded border border-slate-200">{supervisor.employeeCode}</span>
+                <span className="text-[10px] font-mono text-slate-500 bg-white px-2 py-0.5 rounded-[4px] border border-slate-200">{supervisor.employeeCode}</span>
               </div>
             ) : (
-              <p className="text-slate-400 italic">Apex Authority Station</p>
+              <p className="text-slate-400 italic font-normal">Apex Authority Station</p>
             )}
 
             {/* Vertical connector line */}
-            <div className="pl-6 py-0.5 text-indigo-300 font-mono text-xs">
+            <div className="pl-6 py-0.5 text-[#1E40AF]/40 font-mono text-xs">
               │
             </div>
 
-            <div className="p-3 rounded-xl bg-indigo-50/30 border border-indigo-200/80 flex items-center justify-between">
+            <div className="p-3 rounded-[6px] bg-blue-50/60 border border-blue-200 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
-                <div className="h-8 w-8 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-xs">
+                <div className="h-8 w-8 rounded-[4px] bg-[#1E40AF] text-white flex items-center justify-center font-bold text-xs shadow-xs">
                   {firstName[0]}
                 </div>
                 <div>
-                  <span className="text-[10px] text-indigo-700 font-bold uppercase">Your Desk (Current Station)</span>
-                  <p className="font-bold text-slate-900">{userProfile?.name || "Official"}</p>
-                  <p className="text-[11px] text-slate-500">{userProfile?.designation?.title || "Approval Officer"}</p>
+                  <span className="text-[10px] text-[#1E40AF] font-bold uppercase">Your Desk (Current Station)</span>
+                  <p className="font-bold text-[#0F172A]">{userProfile?.name || "Official"}</p>
+                  <p className="text-[11px] text-slate-600 font-normal">{userProfile?.designation?.title || "Approval Officer"}</p>
                 </div>
               </div>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-[4px] bg-emerald-50 text-emerald-800 border border-emerald-200">
                 {availability?.status || "AVAILABLE"}
               </span>
             </div>
           </div>
         </Card>
 
-        {/* Bureau Team Workload (Mixpanel Horizontal Bar Representation) */}
-        <Card className="p-4 sm:p-5 border border-slate-200/90 shadow-2xs bg-white rounded-2xl space-y-3.5">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+        {/* Bureau Team Workload */}
+        <Card className="p-4 sm:p-5 border border-slate-200/90 bg-white/92 backdrop-blur-xs rounded-xl shadow-xs space-y-3.5">
+          <div className="flex items-center justify-between border-b border-slate-200 pb-3">
             <div className="flex items-center gap-2">
-              <Users className="h-4 w-4 text-purple-600" />
-              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900">
+              <Users className="h-4 w-4 text-[#1E40AF]" />
+              <h3 className="text-xs font-bold uppercase tracking-wider text-[#0F172A]">
                 {teamWorkload?.teamMembers?.length > 0 ? "Bureau Team Workload" : "Colleague Workload"}
               </h3>
             </div>
-            <span className="text-[11px] text-slate-400 font-medium">
+            <span className="text-[11px] text-slate-500 font-medium">
               {teamWorkload?.teamMembers?.length || 0} Officers Active
             </span>
           </div>
@@ -1054,14 +1369,14 @@ function AicteDashboardContent() {
           <div className="space-y-2.5 max-h-[175px] overflow-y-auto text-xs pr-1">
             {teamWorkload?.teamMembers && teamWorkload.teamMembers.length > 0 ? (
               teamWorkload.teamMembers.slice(0, 5).map((member) => (
-                <div key={member.id} className="p-2.5 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-between">
+                <div key={member.id} className="p-2.5 rounded-[6px] bg-slate-50 border border-slate-200 flex items-center justify-between">
                   <div className="flex items-center gap-2.5">
-                    <div className="h-7 w-7 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center font-bold text-xs">
+                    <div className="h-7 w-7 rounded-[4px] bg-blue-100 text-[#1E40AF] flex items-center justify-center font-bold text-xs">
                       {member.name.split(" ").map(n => n[0]).join("")}
                     </div>
                     <div>
-                      <p className="font-bold text-slate-900">{member.name}</p>
-                      <p className="text-[10px] text-slate-500">{member.designation}</p>
+                      <p className="font-bold text-[#0F172A]">{member.name}</p>
+                      <p className="text-[10px] text-slate-500 font-normal">{member.designation}</p>
                     </div>
                   </div>
 
@@ -1069,17 +1384,17 @@ function AicteDashboardContent() {
                     {/* Horizontal progress capacity bar */}
                     <div className="hidden sm:block w-20 bg-slate-200 h-1.5 rounded-full overflow-hidden">
                       <div
-                        className="bg-indigo-600 h-full rounded-full transition-all"
+                        className="bg-[#2563EB] h-full rounded-full transition-all duration-300"
                         style={{ width: `${Math.min(100, (member.activeCount / 8) * 100)}%` }}
                       />
                     </div>
 
-                    <span className="text-[11px] font-mono text-slate-700 font-bold">
+                    <span className="text-[11px] font-mono text-[#0F172A] font-semibold">
                       {member.activeCount} <span className="font-normal text-slate-400">cases</span>
                     </span>
 
                     {member.urgentCount > 0 && (
-                      <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200">
+                      <span className="px-1.5 py-0.5 rounded-[4px] text-[10px] font-bold bg-red-50 text-red-700 border border-red-200">
                         {member.urgentCount} urgent
                       </span>
                     )}
@@ -1087,7 +1402,7 @@ function AicteDashboardContent() {
                 </div>
               ))
             ) : (
-              <p className="text-slate-400 text-center py-6 italic text-xs">
+              <p className="text-slate-400 text-center py-6 italic text-xs font-normal">
                 No subordinate team members currently assigned.
               </p>
             )}

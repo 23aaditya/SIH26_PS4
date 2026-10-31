@@ -44,8 +44,8 @@ function NotificationsContent() {
                 <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${isDeficiency
                     ? "bg-amber-100 text-amber-700"
                     : isCompliance
-                        ? "bg-purple-100 text-purple-700"
-                        : "bg-blue-100 text-blue-700"}`}>
+                        ? "bg-blue-100 text-[#1E40AF]"
+                        : "bg-slate-100 text-slate-700"}`}>
                   {isDeficiency ? (<AlertTriangle className="h-4 w-4"/>) : isCompliance ? (<Clock className="h-4 w-4"/>) : (<Info className="h-4 w-4"/>)}
                 </div>
 

@@ -46,7 +46,7 @@ function EvcContent() {
             Scheduling physical and virtual inspection panels, assigning university experts, and tracking reports
           </p>
         </div>
-        <Button size="sm" onClick={() => setShowScheduleModal(true)} className="bg-purple-700 hover:bg-purple-800 text-white text-xs shadow-xs">
+        <Button size="sm" onClick={() => setShowScheduleModal(true)} className="bg-[#1E40AF] hover:bg-[#1E3A8A] text-white text-xs shadow-xs">
           <Plus className="h-3.5 w-3.5 mr-1"/> Schedule Inspection Panel
         </Button>
       </div>
@@ -105,12 +105,12 @@ function EvcContent() {
                     </td>
                     <td className="py-3 px-4">
                       <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold ${v.status === "scheduled"
-                    ? "bg-purple-50 text-purple-700 border border-purple-200"
+                    ? "bg-blue-50 text-blue-800 border border-blue-200"
                     : v.status === "report_received"
                         ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
                         : "bg-amber-50 text-amber-700 border border-amber-200"}`}>
                         <span className={`h-1.5 w-1.5 rounded-full ${v.status === "scheduled"
-                    ? "bg-purple-600"
+                    ? "bg-blue-600"
                     : v.status === "report_received"
                         ? "bg-emerald-600"
                         : "bg-amber-600"}`}/>
@@ -160,7 +160,7 @@ function EvcContent() {
             <Button variant="ghost" size="sm" onClick={() => setShowScheduleModal(false)}>
               Cancel
             </Button>
-            <Button size="sm" onClick={handleScheduleSubmit} className="bg-purple-700 text-white">
+            <Button size="sm" onClick={handleScheduleSubmit} className="bg-[#1E40AF] hover:bg-[#1E3A8A] text-white">
               Confirm Schedule
             </Button>
           </div>
