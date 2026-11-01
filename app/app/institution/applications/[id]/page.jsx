@@ -7,6 +7,7 @@ import { RequireRole } from "@/components/guards/RequireAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { StatusBadge, DocumentBadge, SlaCountdown } from "@/components/shared/StatusBadge";
+import { DocumentPreValidationCard } from "@/components/shared/DocumentPreValidationCard";
 import { WorkflowStepper, AuditTimeline } from "@/components/shared/WorkflowTimeline";
 import { Dialog } from "@/components/ui/dialog";
 import { dataService } from "@/lib/dataService";
@@ -715,33 +716,44 @@ function ApplicationDetailContent() {
                 docs.map((d) => (
                   <div
                     key={d.id}
-                    className="p-3.5 flex items-center justify-between hover:bg-slate-50/60 transition text-xs"
+                    className="p-3.5 flex flex-col gap-2 hover:bg-slate-50/60 transition text-xs border-b border-slate-100 last:border-b-0"
                   >
-                    <div className="min-w-0 flex-1 pr-3">
-                      <div className="flex items-center gap-2">
-                        <span className="font-semibold text-slate-900">{d.documentType}</span>
-                        <DocumentBadge status={d.verificationStatus || "pending"} />
-                      </div>
-                      <p className="text-[11px] font-normal text-slate-500 mt-0.5 truncate">
-                        {d.originalFilename}
-                        {d.fileSize ? ` • ${(d.fileSize / (1024 * 1024)).toFixed(2)} MB` : ""}
-                      </p>
-                      {d.notes && (
-                        <p className="mt-1 text-[11px] text-amber-800 bg-amber-50/70 p-1.5 rounded border border-amber-200">
-                          <strong>Scrutiny Officer Note:</strong> {d.notes}
+                    <div className="flex items-center justify-between">
+                      <div className="min-w-0 flex-1 pr-3">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-slate-900">{d.documentType}</span>
+                          <DocumentBadge status={d.verificationStatus || "pending"} />
+                        </div>
+                        <p className="text-[11px] font-normal text-slate-500 mt-0.5 truncate">
+                          {d.originalFilename}
+                          {d.fileSize ? ` • ${(d.fileSize / (1024 * 1024)).toFixed(2)} MB` : ""}
+                          {d.versionNumber ? ` • v${d.versionNumber}` : ""}
                         </p>
-                      )}
+                        {d.notes && (
+                          <p className="mt-1 text-[11px] text-amber-800 bg-amber-50/70 p-1.5 rounded border border-amber-200">
+                            <strong>Scrutiny Officer Note:</strong> {d.notes}
+                          </p>
+                        )}
+                      </div>
+                      <div className="shrink-0 flex items-center gap-1.5">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDownloadDoc(d)}
+                          className="h-7 text-xs px-2 text-blue-600 hover:text-blue-800"
+                        >
+                          <Eye className="h-3.5 w-3.5 mr-1" /> View Document
+                        </Button>
+                      </div>
                     </div>
-                    <div className="shrink-0 flex items-center gap-1.5">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDownloadDoc(d)}
-                        className="h-7 text-xs px-2 text-blue-600 hover:text-blue-800"
-                      >
-                        <Eye className="h-3.5 w-3.5 mr-1" /> View Document
-                      </Button>
-                    </div>
+
+                    {/* AI Document Pre-Validation Card */}
+                    <DocumentPreValidationCard
+                      applicationId={app.id}
+                      documentId={d.id}
+                      documentName={d.originalFilename}
+                      requirementName={d.documentType}
+                    />
                   </div>
                 ))
               )}

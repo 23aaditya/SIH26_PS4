@@ -34,7 +34,7 @@ export const applicationService = {
     if (typeIdentifier) {
       appType = await prisma.applicationType.findFirst({
         where: {
-          OR: [{ id: typeIdentifier }, { code: typeIdentifier }],
+          OR: [{ id: typeIdentifier }, { code: typeIdentifier }, { name: typeIdentifier }],
         },
       });
     }

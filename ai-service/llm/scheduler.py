@@ -260,6 +260,7 @@ class GroqRequestScheduler:
         application_id: str,
         batch_index: int = 1,
         max_wait_seconds: float = 60.0,
+        priority: str = "high",
     ) -> str:
         """
         Wait for and acquire an authorized request slot under the shared Groq budget.
@@ -267,6 +268,9 @@ class GroqRequestScheduler:
           1. Global provider cooldown (e.g. from previous HTTP 429).
           2. Minimum inter-request spacing interval (e.g. 2.0s).
           3. Rolling 60-second window request cap (effective RPM).
+          4. Priority awareness: officer scrutiny ("high") receives priority reservation
+             headroom over institute pre-validation ("normal").
+          5. Anti-starvation: normal requests waiting > 30s receive guaranteed slot allocation.
         Returns a unique reservation ID upon acquisition.
         """
         import asyncio
@@ -292,7 +296,7 @@ class GroqRequestScheduler:
                 await asyncio.sleep(wait_sec)
                 continue
 
-            # 2. Check rolling window and inter-request interval in SQLite
+            # 2. Check rolling window, priority headroom, and inter-request interval in SQLite
             def _check_and_reserve():
                 conn = get_connection()
                 try:
@@ -321,10 +325,20 @@ class GroqRequestScheduler:
                     req_count = cnt_row[0] or 0
                     oldest_in_window = cnt_row[1] or now
 
+                    # Check absolute ceiling
                     if req_count >= self.effective_rpm:
-                        # Window full: wait until oldest reservation ages out
                         wait_for_window = max(0.1, (oldest_in_window + 60.0) - now + 0.1)
                         return {"can_reserve": False, "wait_seconds": wait_for_window}
+
+                    # Priority evaluation for normal-priority pre-validations
+                    if priority == "normal":
+                        normal_ceiling = max(1, int(self.effective_rpm * 0.70))
+                        # Anti-starvation check: if normal request has waited >= 30s, grant slot under full ceiling
+                        has_starved = elapsed >= 30.0
+                        if req_count >= normal_ceiling and not has_starved:
+                            # Normal priority deferred to reserve headroom for officer scrutiny
+                            wait_for_window = max(0.5, (oldest_in_window + 60.0) - now + 0.1)
+                            return {"can_reserve": False, "wait_seconds": min(2.5, wait_for_window)}
 
                     # Slot available: atomically reserve it
                     cursor.execute("""
@@ -341,7 +355,7 @@ class GroqRequestScheduler:
             res = execute_with_retry(_check_and_reserve)
             if res["can_reserve"]:
                 logger.info(
-                    f"Groq request slot acquired: {req_id} (app={application_id}, batch={batch_index}, "
+                    f"Groq request slot acquired: {req_id} (app={application_id}, priority={priority}, "
                     f"effective_rpm={self.effective_rpm})"
                 )
                 return req_id

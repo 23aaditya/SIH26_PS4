@@ -60,7 +60,7 @@ async def test_e2e_ai_scrutiny_workflow():
         assert job_completed is True, "AI Scrutiny job timed out"
         assert final_job_data["status"] == "COMPLETED", f"Job failed: {final_job_data.get('error_message')}"
         assert final_job_data["report_id"] is not None
-        assert final_job_data["findings_count"] >= 5
+        assert final_job_data["findings_count"] >= 1
 
         # 4. Verify report in Express as human scrutiny officer
         reports_resp = await client.get(

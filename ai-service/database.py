@@ -303,3 +303,383 @@ def reconcile_startup_jobs() -> int:
             conn.close()
 
     return execute_with_retry(_reconcile)
+
+
+# ============================================================================
+# Institute Document Pre-Validation Persistence (Phase 1)
+# ============================================================================
+
+def init_prevalidation_tables():
+    """Initialize SQLite tables and indexes for institute-side document pre-validation."""
+    def _init():
+        conn = get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL;")
+            cursor.execute("PRAGMA synchronous=NORMAL;")
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS document_prevalidations (
+                    id TEXT PRIMARY KEY,
+                    job_id TEXT UNIQUE NOT NULL,
+                    document_id TEXT NOT NULL,
+                    application_id TEXT NOT NULL,
+                    institution_id TEXT NOT NULL,
+                    requirement_id TEXT NOT NULL,
+                    cache_key TEXT NOT NULL,
+                    checksum TEXT NOT NULL,
+                    filename TEXT NOT NULL,
+                    application_category TEXT NOT NULL,
+                    staged_file_path TEXT NOT NULL,
+                    job_status TEXT NOT NULL,
+                    classification_result TEXT,
+                    advisory_message TEXT,
+                    evidence_excerpt TEXT,
+                    facts_vs_inference TEXT,
+                    recommended_action TEXT,
+                    http_status INTEGER,
+                    error_message TEXT,
+                    retry_count INTEGER DEFAULT 0,
+                    max_retries INTEGER DEFAULT 3,
+                    next_retry_at REAL DEFAULT 0.0,
+                    claim_token TEXT,
+                    claimed_at REAL,
+                    lease_expires_at REAL DEFAULT 0.0,
+                    is_superseded INTEGER DEFAULT 0,
+                    model_used TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    completed_at TEXT
+                )
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_preval_cache_lookup 
+                ON document_prevalidations (cache_key)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_preval_active_poll 
+                ON document_prevalidations (application_id, document_id, is_superseded)
+            """)
+            cursor.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_active_preval_job 
+                ON document_prevalidations (application_id, document_id)
+                WHERE job_status IN ('QUEUED', 'PROCESSING', 'RETRY_SCHEDULED')
+            """)
+            conn.commit()
+        finally:
+            conn.close()
+
+    execute_with_retry(_init)
+
+
+def create_prevalidation_job(job_data: Dict[str, Any]) -> str:
+    """Create a new pre-validation job in QUEUED status."""
+    def _insert():
+        conn = get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO document_prevalidations (
+                    id, job_id, document_id, application_id, institution_id, requirement_id,
+                    cache_key, checksum, filename, application_category, staged_file_path,
+                    job_status, classification_result, advisory_message, evidence_excerpt,
+                    facts_vs_inference, recommended_action, retry_count, max_retries,
+                    next_retry_at, is_superseded, model_used, created_at, updated_at
+                ) VALUES (
+                    ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?,
+                    ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?
+                )
+            """, (
+                job_data["id"], job_data["job_id"], job_data["document_id"], job_data["application_id"],
+                job_data["institution_id"], job_data["requirement_id"], job_data["cache_key"],
+                job_data["checksum"], job_data["filename"], job_data["application_category"],
+                job_data["staged_file_path"], job_data.get("job_status", "QUEUED"),
+                job_data.get("classification_result"), job_data.get("advisory_message"),
+                job_data.get("evidence_excerpt"), job_data.get("facts_vs_inference"),
+                job_data.get("recommended_action"), job_data.get("retry_count", 0),
+                job_data.get("max_retries", 3), job_data.get("next_retry_at", 0.0),
+                job_data.get("is_superseded", 0), job_data.get("model_used"),
+                job_data["created_at"], job_data["updated_at"]
+            ))
+            conn.commit()
+            return job_data["job_id"]
+        finally:
+            conn.close()
+
+    return execute_with_retry(_insert)
+
+
+def get_prevalidation_job(job_id: str) -> Optional[Dict[str, Any]]:
+    """Retrieve pre-validation record by job_id."""
+    def _get():
+        conn = get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM document_prevalidations WHERE job_id = ? LIMIT 1", (job_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+        finally:
+            conn.close()
+
+    return execute_with_retry(_get)
+
+
+def get_active_prevalidation_for_document(application_id: str, document_id: str) -> Optional[Dict[str, Any]]:
+    """Retrieve any currently active (QUEUED, PROCESSING, RETRY_SCHEDULED) job for this document."""
+    def _get():
+        conn = get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT * FROM document_prevalidations 
+                WHERE application_id = ? AND document_id = ? 
+                  AND job_status IN ('QUEUED', 'PROCESSING', 'RETRY_SCHEDULED')
+                  AND is_superseded = 0
+                ORDER BY created_at DESC LIMIT 1
+            """, (application_id, document_id))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+        finally:
+            conn.close()
+
+    return execute_with_retry(_get)
+
+
+def get_latest_prevalidation_for_document(application_id: str, document_id: str) -> Optional[Dict[str, Any]]:
+    """Retrieve the latest non-superseded pre-validation result for a document."""
+    def _get():
+        conn = get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT * FROM document_prevalidations 
+                WHERE application_id = ? AND document_id = ? AND is_superseded = 0
+                ORDER BY created_at DESC LIMIT 1
+            """, (application_id, document_id))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+        finally:
+            conn.close()
+
+    return execute_with_retry(_get)
+
+
+def get_cached_prevalidation(cache_key: str) -> Optional[Dict[str, Any]]:
+    """Retrieve completed, non-superseded result matching exact contextual cache key."""
+    def _get():
+        conn = get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT * FROM document_prevalidations 
+                WHERE cache_key = ? AND job_status = 'COMPLETED' AND is_superseded = 0
+                ORDER BY created_at DESC LIMIT 1
+            """, (cache_key,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+        finally:
+            conn.close()
+
+    return execute_with_retry(_get)
+
+
+def mark_prevalidation_superseded(document_id: str) -> int:
+    """Mark all prevalidation jobs for a superseded document."""
+    def _mark():
+        conn = get_connection()
+        try:
+            cursor = conn.cursor()
+            now_iso = datetime.now(timezone.utc).isoformat()
+            cursor.execute("""
+                UPDATE document_prevalidations 
+                SET is_superseded = 1, updated_at = ?
+                WHERE document_id = ?
+            """, (now_iso, document_id))
+            count = cursor.rowcount
+            conn.commit()
+            return count
+        finally:
+            conn.close()
+
+    return execute_with_retry(_mark)
+
+
+def claim_next_prevalidation_job(worker_token: str, lease_seconds: float = 60.0) -> Optional[Dict[str, Any]]:
+    """
+    Atomically find and claim the next available pre-validation job.
+    Claims:
+      - QUEUED jobs with no claim token.
+      - RETRY_SCHEDULED jobs where next_retry_at <= now.
+      - Stale PROCESSING jobs where lease_expires_at < now.
+    Sets claim_token, claimed_at, lease_expires_at, and job_status='PROCESSING'.
+    """
+    def _claim():
+        conn = get_connection()
+        try:
+            cursor = conn.cursor()
+            now = time.time()
+            now_iso = datetime.now(timezone.utc).isoformat()
+            lease_expires = now + lease_seconds
+
+            cursor.execute("""
+                SELECT id, job_id FROM document_prevalidations
+                WHERE (
+                    (job_status = 'QUEUED' AND (claim_token IS NULL OR lease_expires_at < ?))
+                    OR (job_status = 'RETRY_SCHEDULED' AND next_retry_at <= ? AND (claim_token IS NULL OR lease_expires_at < ?))
+                    OR (job_status = 'PROCESSING' AND lease_expires_at < ?)
+                )
+                AND is_superseded = 0
+                ORDER BY created_at ASC
+                LIMIT 1
+            """, (now, now, now, now))
+            row = cursor.fetchone()
+            if not row:
+                return None
+
+            job_pk = row[0]
+            cursor.execute("""
+                UPDATE document_prevalidations
+                SET claim_token = ?,
+                    claimed_at = ?,
+                    lease_expires_at = ?,
+                    job_status = 'PROCESSING',
+                    updated_at = ?
+                WHERE id = ? AND is_superseded = 0
+            """, (worker_token, now, lease_expires, now_iso, job_pk))
+
+            if cursor.rowcount == 0:
+                return None
+
+            conn.commit()
+
+            cursor.execute("SELECT * FROM document_prevalidations WHERE id = ?", (job_pk,))
+            claimed_row = cursor.fetchone()
+            return dict(claimed_row) if claimed_row else None
+        finally:
+            conn.close()
+
+    return execute_with_retry(_claim)
+
+
+def renew_prevalidation_lease(job_id: str, claim_token: str, lease_seconds: float = 60.0) -> bool:
+    """Heartbeat lease renewal while worker is executing inference."""
+    def _renew():
+        conn = get_connection()
+        try:
+            cursor = conn.cursor()
+            now = time.time()
+            now_iso = datetime.now(timezone.utc).isoformat()
+            new_lease = now + lease_seconds
+            cursor.execute("""
+                UPDATE document_prevalidations
+                SET lease_expires_at = ?, updated_at = ?
+                WHERE job_id = ? AND claim_token = ? AND job_status = 'PROCESSING'
+            """, (new_lease, now_iso, job_id, claim_token))
+            conn.commit()
+            return cursor.rowcount > 0
+        finally:
+            conn.close()
+
+    return execute_with_retry(_renew)
+
+
+def complete_prevalidation_job(job_id: str, claim_token: str, update_data: Dict[str, Any]) -> bool:
+    """
+    Conditionally persist completed pre-validation result with claim token fencing.
+    Fails safely (returns False) if worker lease was expired and claimed by another worker.
+    """
+    def _complete():
+        conn = get_connection()
+        try:
+            cursor = conn.cursor()
+            now_iso = datetime.now(timezone.utc).isoformat()
+            cursor.execute("""
+                UPDATE document_prevalidations
+                SET job_status = 'COMPLETED',
+                    classification_result = ?,
+                    advisory_message = ?,
+                    evidence_excerpt = ?,
+                    facts_vs_inference = ?,
+                    recommended_action = ?,
+                    model_used = ?,
+                    http_status = 200,
+                    error_message = NULL,
+                    completed_at = ?,
+                    updated_at = ?,
+                    claim_token = NULL
+                WHERE job_id = ? AND claim_token = ?
+            """, (
+                update_data.get("classification_result"),
+                update_data.get("advisory_message"),
+                update_data.get("evidence_excerpt"),
+                update_data.get("facts_vs_inference"),
+                update_data.get("recommended_action"),
+                update_data.get("model_used"),
+                now_iso, now_iso,
+                job_id, claim_token
+            ))
+            conn.commit()
+            return cursor.rowcount > 0
+        finally:
+            conn.close()
+
+    return execute_with_retry(_complete)
+
+
+def fail_or_retry_prevalidation_job(
+    job_id: str,
+    claim_token: str,
+    error_message: str,
+    http_status: Optional[int] = None,
+    retry_delay: Optional[float] = None
+) -> bool:
+    """Handle prevalidation failure or schedule retry."""
+    def _handle():
+        conn = get_connection()
+        try:
+            cursor = conn.cursor()
+            now = time.time()
+            now_iso = datetime.now(timezone.utc).isoformat()
+
+            cursor.execute("SELECT retry_count, max_retries FROM document_prevalidations WHERE job_id = ?", (job_id,))
+            row = cursor.fetchone()
+            if not row:
+                return False
+
+            retries, max_retries = row[0] or 0, row[1] or 3
+
+            if retry_delay is not None and retries < max_retries:
+                # Schedule retry
+                next_retry = now + retry_delay
+                cursor.execute("""
+                    UPDATE document_prevalidations
+                    SET job_status = 'RETRY_SCHEDULED',
+                        retry_count = retry_count + 1,
+                        next_retry_at = ?,
+                        http_status = ?,
+                        error_message = ?,
+                        updated_at = ?,
+                        claim_token = NULL
+                    WHERE job_id = ? AND claim_token = ?
+                """, (next_retry, http_status, error_message, now_iso, job_id, claim_token))
+            else:
+                # Terminal failure
+                cursor.execute("""
+                    UPDATE document_prevalidations
+                    SET job_status = 'FAILED',
+                        http_status = ?,
+                        error_message = ?,
+                        completed_at = ?,
+                        updated_at = ?,
+                        claim_token = NULL
+                    WHERE job_id = ? AND claim_token = ?
+                """, (http_status, error_message, now_iso, now_iso, job_id, claim_token))
+
+            conn.commit()
+            return cursor.rowcount > 0
+        finally:
+            conn.close()
+
+    return execute_with_retry(_handle)

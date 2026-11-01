@@ -18,6 +18,10 @@ router.post("/:id/submit", requireAuth, denySystemService, applicationController
 router.post("/:id/documents", requireAuth, denySystemService, upload.single("file"), applicationController.uploadDocument);
 router.delete("/:id/documents/:documentId", requireAuth, denySystemService, applicationController.deleteDocument);
 
+// Document AI Pre-Validation (Institute side)
+router.post("/:id/documents/:documentId/prevalidate", requireAuth, denySystemService, applicationController.prevalidateDocument);
+router.get("/:id/documents/:documentId/prevalidation", requireAuth, denySystemService, applicationController.getPrevalidation);
+
 // Deficiency responses
 router.post("/:id/deficiency-response", requireAuth, denySystemService, applicationController.respondToDeficiency);
 router.post("/:id/clarification", requireAuth, denySystemService, applicationController.respondToDeficiency);

@@ -5,6 +5,7 @@ import crypto from "crypto";
 import prisma from "../db/prisma.js";
 import { applicationService } from "../services/application.service.js";
 import { agentEventService } from "../services/agentEvent.service.js";
+import { aiPrevalidationService } from "../services/aiPrevalidation.service.js";
 
 export const applicationController = {
   async list(req, res, next) {
@@ -307,12 +308,13 @@ export const applicationController = {
         return res.status(404).json({ error: "Application not found" });
       }
 
-      if (
-        req.user.accountType === "institution" &&
-        req.user.institutionId &&
-        application.institutionId !== req.user.institutionId
-      ) {
-        return res.status(403).json({ error: "Access denied" });
+      let userInstId = req.user.institutionId;
+      if (!userInstId && req.user.email) {
+        const u = await prisma.user.findUnique({ where: { email: req.user.email } });
+        userInstId = u?.institutionId;
+      }
+      if (req.user.accountType === "institution" && (!userInstId || userInstId !== application.institutionId)) {
+        return res.status(403).json({ error: "Access denied: Unauthorized institution tenant" });
       }
 
       const originalFilename = file ? file.originalname : req.body.originalFilename || "document.pdf";
@@ -334,27 +336,254 @@ export const applicationController = {
         }
       }
 
-      const created = await prisma.applicationDocument.create({
+      // Resolve authoritative requirement specification from APH manifest
+      const authReq = await aiPrevalidationService.resolveAuthoritativeRequirement(
+        application,
+        documentRequirementId
+      );
+
+      let createdDocument = null;
+      let previousDocId = null;
+
+      // Transactional Document Replacement & Outbox Insertion
+      await prisma.$transaction(async (tx) => {
+        let versionNumber = 1;
+
+        if (documentRequirementId) {
+          const existing = await tx.applicationDocument.findFirst({
+            where: {
+              applicationId,
+              documentRequirementId,
+              isCurrent: true,
+            },
+          });
+
+          if (existing) {
+            previousDocId = existing.id;
+            versionNumber = (existing.versionNumber || 1) + 1;
+
+            // Mark previous document as superseded without unlinking physical file
+            await tx.applicationDocument.update({
+              where: { id: existing.id },
+              data: {
+                isCurrent: false,
+                supersededAt: new Date(),
+              },
+            });
+
+            // Log historical audit event
+            await tx.auditEvent.create({
+              data: {
+                applicationId,
+                action: "DOCUMENT_REPLACED",
+                actorUserId: req.user.id || null,
+                actorRole: req.user.accountType || "institution",
+                reason: `Document '${existing.originalFilename}' (v${existing.versionNumber}) superseded by '${originalFilename}' (v${versionNumber}).`,
+                metadataJson: JSON.stringify({
+                  previousDocumentId: existing.id,
+                  requirementId: documentRequirementId,
+                  newOriginalFilename: originalFilename,
+                  versionNumber,
+                }),
+              },
+            });
+          }
+        }
+
+        // Insert new current ApplicationDocument record
+        createdDocument = await tx.applicationDocument.create({
+          data: {
+            applicationId,
+            institutionId: application.institutionId,
+            documentRequirementId: documentRequirementId || null,
+            documentType: documentType || (authReq?.documentName) || "Supporting Document",
+            originalFilename,
+            storagePath,
+            checksum,
+            mimeType: file?.mimetype || "application/pdf",
+            fileSize: file?.size || 1024 * 100,
+            uploadedById: req.user.id || req.user.employeeCode || "inst-user-1",
+            verificationStatus: "pending",
+            isCurrent: true,
+            versionNumber,
+            notes,
+          },
+        });
+
+        // Enqueue prevalidation via Transactional Outbox (draft status only)
+        if (application.status === "draft") {
+          const outboxPayload = {
+            application_id: applicationId,
+            document_id: createdDocument.id,
+            institution_id: application.institutionId,
+            requirement_id: documentRequirementId || "UNMAPPED",
+            checksum: checksum || "",
+            document_name: originalFilename,
+            storage_path: storagePath,
+            requirement_description: authReq?.requirementDescription || "",
+            aph_clause: authReq?.aphClause || "",
+            application_category: authReq?.applicationCategory || "other",
+            program_context_hash: "",
+            program_context: "",
+          };
+
+          await aiPrevalidationService.createOutboxEntry(tx, {
+            applicationId,
+            documentId: createdDocument.id,
+            institutionId: application.institutionId,
+            requirementId: documentRequirementId,
+            checksum: checksum || "",
+            documentName: originalFilename,
+            storagePath,
+            payload: outboxPayload,
+          });
+        }
+      });
+
+      // Dispatched outside the transaction
+      if (application.status !== "draft") {
+        agentEventService.dispatchLifecycleEvent("DOCUMENTS_UPDATED", applicationId, { documentId: createdDocument.id, documentType: createdDocument.documentType }, req.user?.id);
+      } else {
+        // Trigger asynchronous outbox dispatch immediately
+        aiPrevalidationService.dispatchPendingOutboxEvents();
+        if (previousDocId) {
+          aiPrevalidationService.supersedeDocument(applicationId, previousDocId);
+        }
+      }
+
+      res.status(201).json({ success: true, document: createdDocument });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async prevalidateDocument(req, res, next) {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      const { id, documentId } = req.params;
+      const application = await prisma.application.findUnique({
+        where: { id },
+        include: { applicationType: true },
+      });
+
+      if (!application) {
+        return res.status(404).json({ error: "Application not found" });
+      }
+
+      let userInstId = req.user.institutionId;
+      if (!userInstId && req.user.email) {
+        const u = await prisma.user.findUnique({ where: { email: req.user.email } });
+        userInstId = u?.institutionId;
+      }
+      if (req.user.accountType === "institution" && (!userInstId || userInstId !== application.institutionId)) {
+        return res.status(403).json({ error: "Access denied: Unauthorized institution tenant" });
+      }
+
+      const doc = await prisma.applicationDocument.findUnique({
+        where: { id: documentId },
+      });
+
+      if (!doc || doc.applicationId !== id) {
+        return res.status(404).json({ error: "Document not found for this application" });
+      }
+
+      if (!doc.isCurrent) {
+        return res.status(400).json({ error: "Cannot prevalidate a superseded document" });
+      }
+
+      const authReq = await aiPrevalidationService.resolveAuthoritativeRequirement(
+        application,
+        doc.documentRequirementId
+      );
+
+      if (doc.documentRequirementId && !authReq) {
+        return res.status(400).json({
+          error: "Document requirement does not belong to this application's category",
+          code: "INVALID_REQUIREMENT_ASSOCIATION",
+        });
+      }
+
+      const payload = {
+        application_id: application.id,
+        document_id: doc.id,
+        institution_id: application.institutionId,
+        requirement_id: doc.documentRequirementId || "UNMAPPED",
+        checksum: doc.checksum || "",
+        document_name: doc.originalFilename,
+        storage_path: doc.storagePath,
+        requirement_description: authReq?.requirementDescription || "",
+        aph_clause: authReq?.aphClause || "",
+        application_category: authReq?.applicationCategory || "other",
+        program_context_hash: "",
+        program_context: "",
+      };
+
+      await prisma.documentPrevalidationOutbox.create({
         data: {
-          applicationId,
+          applicationId: application.id,
+          documentId: doc.id,
           institutionId: application.institutionId,
-          documentRequirementId: documentRequirementId || null,
-          documentType: documentType || "Supporting Document",
-          originalFilename,
-          storagePath,
-          checksum,
-          mimeType: file?.mimetype || "application/pdf",
-          fileSize: file?.size || 1024 * 100,
-          uploadedById: req.user.id || req.user.employeeCode || "inst-user-1",
-          verificationStatus: "pending",
-          notes,
+          requirementId: doc.documentRequirementId || "UNMAPPED",
+          checksum: doc.checksum || "",
+          documentName: doc.originalFilename,
+          storagePath: doc.storagePath || "",
+          payloadJson: JSON.stringify(payload),
+          status: "PENDING",
         },
       });
 
-      if (application.status !== "draft") {
-        agentEventService.dispatchLifecycleEvent("DOCUMENTS_UPDATED", applicationId, { documentId: created.id, documentType: created.documentType }, req.user?.id);
+      aiPrevalidationService.dispatchPendingOutboxEvents();
+      const statusResult = await aiPrevalidationService.getPrevalidationStatus(application.id, doc.id);
+
+      return res.status(202).json({
+        success: true,
+        status: statusResult.status || "QUEUED",
+        jobId: statusResult.jobId || null,
+        classification: statusResult.classification || null,
+        message: "Pre-validation dispatched successfully",
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async getPrevalidation(req, res, next) {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: "Authentication required" });
       }
-      res.status(201).json({ success: true, document: created });
+
+      const { id, documentId } = req.params;
+      const application = await prisma.application.findUnique({
+        where: { id },
+      });
+
+      if (!application) {
+        return res.status(404).json({ error: "Application not found" });
+      }
+
+      let userInstId = req.user.institutionId;
+      if (!userInstId && req.user.email) {
+        const u = await prisma.user.findUnique({ where: { email: req.user.email } });
+        userInstId = u?.institutionId;
+      }
+      if (req.user.accountType === "institution" && (!userInstId || userInstId !== application.institutionId)) {
+        return res.status(403).json({ error: "Access denied: Unauthorized institution tenant" });
+      }
+
+      const doc = await prisma.applicationDocument.findUnique({
+        where: { id: documentId },
+      });
+
+      if (!doc || doc.applicationId !== id) {
+        return res.status(404).json({ error: "Document not found" });
+      }
+
+      const statusResult = await aiPrevalidationService.getPrevalidationStatus(application.id, doc.id);
+      return res.json(statusResult);
     } catch (error) {
       next(error);
     }
@@ -387,6 +616,9 @@ export const applicationController = {
       if (doc.application.status !== "draft") {
         return res.status(400).json({ error: "Documents can only be deleted while application is in draft." });
       }
+
+      // Mark prevalidation superseded in AI service
+      aiPrevalidationService.supersedeDocument(id, documentId);
 
       await prisma.applicationDocument.delete({ where: { id: documentId } });
 

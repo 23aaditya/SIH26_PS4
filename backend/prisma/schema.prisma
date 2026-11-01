@@ -122,6 +122,31 @@ model ApplicationDocument {
   verifiedAt          DateTime?
   notes               String?
   undertakingEvidence UndertakingEvidence[]
+  isCurrent           Boolean               @default(true)
+  supersededAt        DateTime?
+  versionNumber       Int                   @default(1)
+
+  @@index([applicationId, documentRequirementId, isCurrent])
+}
+
+model DocumentPrevalidationOutbox {
+  id                    String                @id @default(cuid())
+  applicationId         String
+  documentId            String
+  institutionId         String
+  requirementId         String
+  checksum              String
+  documentName          String
+  storagePath           String
+  payloadJson           String
+  status                String                @default("PENDING")
+  attempts              Int                   @default(0)
+  lastError             String?
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+  deliveredAt           DateTime?
+
+  @@index([status, createdAt])
 }
 
 model WorkflowTask {

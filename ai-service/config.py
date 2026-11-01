@@ -17,14 +17,20 @@ class Settings(BaseSettings):
     HOST: str = os.getenv("HOST", "127.0.0.1")
     DB_PATH: str = os.getenv("DB_PATH", "agent_jobs.db")
     AICTE_APH_VERSION: str = os.getenv("AICTE_APH_VERSION", "APH 2024-2027")
+    PREVALIDATION_STAGING_DIR: str = os.getenv("PREVALIDATION_STAGING_DIR", "D:\\SIH_DATA\\prevalidation\\staging")
+    PROJECT_ROOT: Path = PROJECT_ROOT
 
-    @field_validator("DB_PATH", mode="after")
+    @field_validator("DB_PATH", "PREVALIDATION_STAGING_DIR", mode="after")
     @classmethod
-    def resolve_db_path(cls, v: str) -> str:
+    def resolve_paths(cls, v: str) -> str:
         p = Path(v)
         if not p.is_absolute():
             p = PROJECT_ROOT / p
-        return str(p.resolve())
+        resolved = str(p.resolve())
+        # Ensure directory exists if it's the staging directory
+        if "staging" in resolved:
+            Path(resolved).mkdir(parents=True, exist_ok=True)
+        return resolved
 
     # Groq LLM Inference Settings
     GROQ_API_KEY: Optional[str] = (os.getenv("GROQ_API_KEY") or "").strip() or None

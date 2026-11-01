@@ -1,6 +1,11 @@
 import hashlib
 import json
 import logging
+import os
+import shutil
+import uuid
+from pathlib import Path
+from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from typing import Dict, Any, List, Optional
 
@@ -19,13 +24,20 @@ from database import (
     get_latest_job_for_application,
     get_completed_job_by_version,
     reconcile_startup_jobs,
+    init_prevalidation_tables,
+    create_prevalidation_job,
+    get_prevalidation_job,
+    get_active_prevalidation_for_document,
+    get_latest_prevalidation_for_document,
+    get_cached_prevalidation,
+    mark_prevalidation_superseded,
 )
 from client import backend_client
 from extractor import document_extractor
 from rules.engine import rule_engine
 from llm.scrutiny_agent import scrutiny_agent
 from llm.client import groq_client
-from models.schemas import TriggerJobRequest, JobStatusResponse
+from models.schemas import TriggerJobRequest, JobStatusResponse, PrevalidateDocumentRequest
 from agent.store import (
     init_agent_tables,
     reconcile_startup_executions,
@@ -46,6 +58,8 @@ from agent.models import (
 from llm.scheduler import init_scheduler_tables, groq_scheduler
 from llm.batch_store import init_batch_tables
 from llm.recovery_worker import recovery_worker
+from llm.prevalidation_recovery_worker import prevalidation_recovery_worker
+from llm.prevalidation_agent import compute_prevalidation_cache_key
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -53,11 +67,12 @@ logger = logging.getLogger("ai_scrutiny_service")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Initialize SQLite job store, agent tables, rate limiter scheduler, and batch store
+    # Initialize SQLite job store, agent tables, rate limiter scheduler, batch store, and prevalidation store
     init_db()
     init_agent_tables()
     init_scheduler_tables()
     init_batch_tables()
+    init_prevalidation_tables()
     # Startup reconciliation: clean up dangling in-flight jobs from prior crashes/restarts
     reconciled_count = reconcile_startup_jobs()
     if reconciled_count > 0:
@@ -65,10 +80,12 @@ async def lifespan(app: FastAPI):
     reconciled_execs = reconcile_startup_executions()
     if reconciled_execs > 0:
         logger.info(f"Startup recovery: Reconciled {reconciled_execs} interrupted agent executions.")
-    # Start the automated batch recovery worker daemon
+    # Start the automated batch recovery worker daemon and prevalidation worker
     recovery_worker.start()
-    logger.info("AI Scrutiny Assistant and Lifecycle Agent initialized. SQLite store & recovery worker ready.")
+    prevalidation_recovery_worker.start()
+    logger.info("AI Scrutiny Assistant, Lifecycle Agent, and Pre-Validation workers ready.")
     yield
+    prevalidation_recovery_worker.stop()
     recovery_worker.stop()
     logger.info("AI Scrutiny Assistant shutting down.")
 
@@ -674,6 +691,292 @@ async def reject_agent_action(action_id: str, req: ActionRejectionRequest):
         correlation_id=f"rejection-{action_id}",
     )
     return res
+
+
+# ============================================================================
+# Institute Document Pre-Validation Endpoints (Phase 1)
+# ============================================================================
+
+@app.post(
+    "/api/v1/prevalidate-document",
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(verify_service_authorization)],
+)
+async def prevalidate_document(req: PrevalidateDocumentRequest):
+    """
+    Accept an uploaded document for asynchronous qualitative pre-validation.
+    Persists actual PDF bytes durably to staging storage before acknowledging.
+    """
+    staging_dir = Path(settings.PREVALIDATION_STAGING_DIR)
+    staging_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1. Disk capacity guard (minimum 500 MB free space)
+    try:
+        usage = shutil.disk_usage(staging_dir)
+        free_mb = usage.free / (1024 * 1024)
+        if free_mb < 500.0:
+            raise HTTPException(
+                status_code=status.HTTP_507_INSUFFICIENT_STORAGE,
+                detail=f"Staging filesystem disk full ({free_mb:.1f} MB remaining, min 500 MB required)."
+            )
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
+        logger.warning(f"Could not verify staging disk usage: {e}")
+
+    # 2. Obtain raw file bytes from base64 or verified local storage_path
+    file_bytes = None
+    if req.file_base64:
+        import base64
+        try:
+            file_bytes = base64.b64decode(req.file_base64)
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid file_base64 payload: {str(e)}"
+            )
+    elif req.storage_path:
+        p = Path(req.storage_path)
+        if not p.is_absolute():
+            cand1 = Path(settings.PROJECT_ROOT) / p
+            cand2 = Path(settings.PROJECT_ROOT) / "backend" / p
+            if cand1.exists():
+                p = cand1
+            elif cand2.exists():
+                p = cand2
+            elif p.exists():
+                p = p.resolve()
+        if not p.exists():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Storage path '{req.storage_path}' not found on server."
+            )
+        try:
+            with open(p, "rb") as f:
+                file_bytes = f.read()
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to read file from storage path: {str(e)}"
+            )
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Neither storage_path nor file_base64 was provided."
+        )
+
+    # Verify SHA-256
+    computed_hash = hashlib.sha256(file_bytes).hexdigest()
+    if req.checksum and computed_hash.lower() != req.checksum.lower():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Uploaded file checksum mismatch. Expected {req.checksum}, computed {computed_hash}."
+        )
+
+    # 3. Check for active pre-validation job for this document
+    active_job = get_active_prevalidation_for_document(req.application_id, req.document_id)
+    if active_job:
+        return {
+            "success": True,
+            "jobId": active_job["job_id"],
+            "status": active_job["job_status"],
+            "cached": False,
+            "message": "Existing active pre-validation job returned.",
+        }
+
+    # 4. Compute contextual composite cache key
+    cache_key = compute_prevalidation_cache_key(
+        application_id=req.application_id,
+        checksum=computed_hash,
+        requirement_id=req.requirement_id,
+        category=req.application_category or "other",
+        program_context_hash=req.program_context_hash,
+        clause_version="APH_2024_2027",
+        prompt_version="PV_PROMPT_V2.1",
+        model=settings.GROQ_MODEL,
+    )
+
+    # 5. Check cache for identical contextual evaluation
+    cached = get_cached_prevalidation(cache_key)
+    if cached:
+        job_id = f"preval-{uuid.uuid4().hex[:12]}"
+        now_iso = datetime.now(timezone.utc).isoformat()
+        job_data = {
+            "id": str(uuid.uuid4()),
+            "job_id": job_id,
+            "document_id": req.document_id,
+            "application_id": req.application_id,
+            "institution_id": req.institution_id,
+            "requirement_id": req.requirement_id,
+            "cache_key": cache_key,
+            "checksum": computed_hash,
+            "filename": req.document_name or "document.pdf",
+            "application_category": req.application_category or "other",
+            "staged_file_path": cached.get("staged_file_path") or "CACHED",
+            "job_status": "COMPLETED",
+            "classification_result": cached.get("classification_result"),
+            "advisory_message": cached.get("advisory_message"),
+            "evidence_excerpt": cached.get("evidence_excerpt"),
+            "facts_vs_inference": cached.get("facts_vs_inference"),
+            "recommended_action": cached.get("recommended_action"),
+            "model_used": cached.get("model_used") or "CACHE_HIT",
+            "is_superseded": 0,
+            "created_at": now_iso,
+            "updated_at": now_iso,
+        }
+        create_prevalidation_job(job_data)
+        return {
+            "success": True,
+            "jobId": job_id,
+            "status": "COMPLETED",
+            "cached": True,
+            "classification": {
+                "result": cached.get("classification_result"),
+                "advisoryMessage": cached.get("advisory_message"),
+                "evidenceExcerpt": cached.get("evidence_excerpt"),
+                "factsVsInference": cached.get("facts_vs_inference"),
+                "recommendedAction": cached.get("recommended_action"),
+            },
+        }
+
+    # 6. Write file atomically to persistent staging path
+    job_id = f"preval-{uuid.uuid4().hex[:12]}"
+    staged_file_path = staging_dir / f"{job_id}.pdf"
+    tmp_path = staging_dir / f"{job_id}.tmp"
+
+    try:
+        with open(tmp_path, "wb") as f:
+            f.write(file_bytes)
+            f.flush()
+            os.fsync(f.fileno())
+        try:
+            os.chmod(tmp_path, 0o600)
+        except Exception:
+            pass
+        os.replace(tmp_path, staged_file_path)
+    except Exception as e:
+        if tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except Exception:
+                pass
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to persist document to staging: {str(e)}"
+        )
+
+    # 7. Persist QUEUED record in SQLite
+    now_iso = datetime.now(timezone.utc).isoformat()
+    job_data = {
+        "id": str(uuid.uuid4()),
+        "job_id": job_id,
+        "document_id": req.document_id,
+        "application_id": req.application_id,
+        "institution_id": req.institution_id,
+        "requirement_id": req.requirement_id,
+        "cache_key": cache_key,
+        "checksum": computed_hash,
+        "filename": req.document_name or "document.pdf",
+        "application_category": req.application_category or "other",
+        "staged_file_path": str(staged_file_path.resolve()),
+        "job_status": "QUEUED",
+        "classification_result": None,
+        "advisory_message": "Pre-validation queued for processing.",
+        "evidence_excerpt": None,
+        "facts_vs_inference": None,
+        "recommended_action": None,
+        "retry_count": 0,
+        "max_retries": 3,
+        "next_retry_at": 0.0,
+        "is_superseded": 0,
+        "model_used": settings.GROQ_MODEL,
+        "created_at": now_iso,
+        "updated_at": now_iso,
+    }
+    create_prevalidation_job(job_data)
+
+    return {
+        "success": True,
+        "jobId": job_id,
+        "status": "QUEUED",
+        "cached": False,
+        "message": "Document pre-validation queued successfully.",
+    }
+
+
+@app.get(
+    "/api/v1/prevalidate-document/{job_id}",
+    dependencies=[Depends(verify_service_authorization)],
+)
+async def get_prevalidation_status(job_id: str):
+    """Retrieve pre-validation job status and findings."""
+    job = get_prevalidation_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Pre-validation job '{job_id}' not found.")
+    return {
+        "success": True,
+        "jobId": job["job_id"],
+        "documentId": job["document_id"],
+        "applicationId": job["application_id"],
+        "status": job["job_status"],
+        "isSuperseded": bool(job.get("is_superseded")),
+        "classification": {
+            "result": job.get("classification_result"),
+            "advisoryMessage": job.get("advisory_message"),
+            "evidenceExcerpt": job.get("evidence_excerpt"),
+            "factsVsInference": job.get("facts_vs_inference"),
+            "recommendedAction": job.get("recommended_action"),
+        } if job.get("classification_result") else None,
+        "errorMessage": job.get("error_message"),
+        "retryCount": job.get("retry_count"),
+        "modelUsed": job.get("model_used"),
+        "createdAt": job.get("created_at"),
+        "updatedAt": job.get("updated_at"),
+        "completedAt": job.get("completed_at"),
+    }
+
+
+@app.get(
+    "/api/v1/applications/{application_id}/documents/{document_id}/prevalidation",
+    dependencies=[Depends(verify_service_authorization)],
+)
+async def get_document_prevalidation(application_id: str, document_id: str):
+    """Query current pre-validation status for an uploaded document."""
+    job = get_latest_prevalidation_for_document(application_id, document_id)
+    if not job:
+        return {
+            "success": True,
+            "status": "NOT_UPLOADED",
+            "classification": None,
+        }
+    return {
+        "success": True,
+        "jobId": job["job_id"],
+        "documentId": job["document_id"],
+        "applicationId": job["application_id"],
+        "status": job["job_status"],
+        "isSuperseded": bool(job.get("is_superseded")),
+        "classification": {
+            "result": job.get("classification_result"),
+            "advisoryMessage": job.get("advisory_message"),
+            "evidenceExcerpt": job.get("evidence_excerpt"),
+            "factsVsInference": job.get("facts_vs_inference"),
+            "recommendedAction": job.get("recommended_action"),
+        } if job.get("classification_result") else None,
+        "errorMessage": job.get("error_message"),
+        "createdAt": job.get("created_at"),
+        "completedAt": job.get("completed_at"),
+    }
+
+
+@app.post(
+    "/api/v1/applications/{application_id}/documents/{document_id}/supersede",
+    dependencies=[Depends(verify_service_authorization)],
+)
+async def supersede_document_prevalidation(application_id: str, document_id: str):
+    """Mark all pre-validation records for a document as superseded."""
+    count = mark_prevalidation_superseded(document_id)
+    return {"success": True, "supersededCount": count}
 
 
 if __name__ == "__main__":

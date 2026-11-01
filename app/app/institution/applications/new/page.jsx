@@ -30,6 +30,7 @@ import {
   Check,
   ExternalLink,
 } from "lucide-react";
+import { DocumentPreValidationCard } from "@/components/shared/DocumentPreValidationCard";
 
 export default function NewApplicationPage() {
   const router = useRouter();
@@ -999,6 +1000,18 @@ export default function NewApplicationPage() {
 
                         {/* Upload Status / Action */}
                         <div className="flex items-center gap-2 shrink-0">
+                          <input
+                            id={`file-input-${reqDoc.id}`}
+                            type="file"
+                            accept={reqDoc.allowedExtensions || ".pdf,.jpg,.jpeg,.png"}
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) handleFileUpload(reqDoc, file);
+                              e.target.value = "";
+                            }}
+                            disabled={isUploading}
+                            className="hidden"
+                          />
                           {uploaded ? (
                             <div className="flex items-center gap-2">
                               <div className="text-right">
@@ -1009,6 +1022,15 @@ export default function NewApplicationPage() {
                                   {uploaded.originalFilename} ({(uploaded.fileSize / 1024).toFixed(0)} KB)
                                 </p>
                               </div>
+                              <button
+                                type="button"
+                                onClick={() => document.getElementById(`file-input-${reqDoc.id}`)?.click()}
+                                disabled={isUploading}
+                                className="h-7 px-2 text-[11px] font-medium text-slate-600 hover:text-slate-900 border border-slate-200 rounded-md hover:bg-slate-50 transition"
+                                title="Upload replacement document"
+                              >
+                                Replace
+                              </button>
                               <Button
                                 type="button"
                                 variant="outline"
@@ -1021,17 +1043,7 @@ export default function NewApplicationPage() {
                               </Button>
                             </div>
                           ) : (
-                            <label className="cursor-pointer">
-                              <input
-                                type="file"
-                                accept={reqDoc.allowedExtensions || ".pdf,.jpg,.jpeg,.png"}
-                                onChange={(e) => {
-                                  const file = e.target.files?.[0];
-                                  if (file) handleFileUpload(reqDoc, file);
-                                }}
-                                disabled={isUploading}
-                                className="hidden"
-                              />
+                            <label htmlFor={`file-input-${reqDoc.id}`} className="cursor-pointer">
                               <span className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-semibold bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 shadow-2xs transition">
                                 {isUploading ? (
                                   <>
@@ -1047,6 +1059,19 @@ export default function NewApplicationPage() {
                           )}
                         </div>
                       </div>
+
+                      {/* AI Pre-Validation Status & Qualitative Findings Card */}
+                      {uploaded && applicationId && (
+                        <DocumentPreValidationCard
+                          applicationId={applicationId}
+                          documentId={uploaded.id}
+                          documentName={uploaded.originalFilename}
+                          requirementName={reqDoc.documentName}
+                          onReplace={() => {
+                            document.getElementById(`file-input-${reqDoc.id}`)?.click();
+                          }}
+                        />
+                      )}
                     </div>
                   );
                 })}
@@ -1162,16 +1187,26 @@ export default function NewApplicationPage() {
                     Edit Documents
                   </button>
                 </div>
-                <div className="space-y-1.5 pt-2">
+                <div className="space-y-2 pt-2">
                   {Object.entries(uploadedDocs).map(([docName, info]) => (
-                    <div key={docName} className="flex items-center justify-between p-2 rounded-lg bg-emerald-50/50 border border-emerald-100 text-xs">
-                      <div className="flex items-center gap-2">
-                        <FileText className="h-4 w-4 text-emerald-600" />
-                        <span className="font-medium text-slate-900">{docName}</span>
+                    <div key={docName} className="p-3 rounded-lg border border-slate-200 bg-white space-y-1 text-xs">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <FileText className="h-4 w-4 text-emerald-600" />
+                          <span className="font-semibold text-slate-900">{docName}</span>
+                        </div>
+                        <span className="font-mono text-[11px] text-slate-500">
+                          {info.originalFilename} ({(info.fileSize / 1024).toFixed(0)} KB)
+                        </span>
                       </div>
-                      <span className="font-mono text-[11px] text-slate-500">
-                        {info.originalFilename} ({(info.fileSize / 1024).toFixed(0)} KB)
-                      </span>
+                      {applicationId && info.id && (
+                        <DocumentPreValidationCard
+                          applicationId={applicationId}
+                          documentId={info.id}
+                          documentName={info.originalFilename}
+                          requirementName={docName}
+                        />
+                      )}
                     </div>
                   ))}
                 </div>

@@ -50,6 +50,22 @@ class JobStatusResponse(BaseModel):
     completed_at: Optional[str] = None
     error_message: Optional[str] = None
 
+
+class PrevalidateDocumentRequest(BaseModel):
+    application_id: str
+    document_id: str
+    institution_id: str
+    requirement_id: str
+    checksum: str
+    document_name: str
+    storage_path: Optional[str] = None
+    file_base64: Optional[str] = None
+    requirement_description: Optional[str] = ""
+    aph_clause: Optional[str] = ""
+    application_category: Optional[str] = "other"
+    program_context_hash: Optional[str] = ""
+    program_context: Optional[str] = ""
+
 class LLMFinding(BaseModel):
     finding_type: str = Field(
         ...,

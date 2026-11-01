@@ -171,3 +171,4 @@ agent_jobs.db
 backend/prisma/dev.db
 backend/prisma/dev.db-wal
 backend/prisma/dev.db-shm
+ai-service/staging/
