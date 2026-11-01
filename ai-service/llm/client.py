@@ -9,6 +9,7 @@ from typing import Optional, Dict, Any, Tuple
 
 from config import settings
 from models.schemas import LLMAnalysisResult
+from llm.scheduler import groq_scheduler, parse_retry_after, classify_rate_limit
 
 logger = logging.getLogger("ai_scrutiny_service.groq_client")
 
@@ -81,7 +82,17 @@ def extract_groq_error_details(e: Any) -> Tuple[Optional[int], Optional[int], Op
         if is_quota:
             msg = "Groq API monthly or organization token quota exceeded. Account credit required."
         else:
-            msg = "Groq API requests-per-minute (RPM) rate limit reached."
+            classified_limit = classify_rate_limit(raw_str)
+            if classified_limit == "RATE_LIMIT_TYPE_TPD":
+                msg = "Groq API tokens-per-day (TPD) rate limit reached: Daily token budget exhausted."
+            elif classified_limit == "RATE_LIMIT_TYPE_RPD":
+                msg = "Groq API requests-per-day (RPD) rate limit reached: Daily request budget exhausted."
+            elif classified_limit == "RATE_LIMIT_TYPE_TPM":
+                msg = "Groq API tokens-per-minute (TPM) rate limit reached."
+            elif classified_limit == "RATE_LIMIT_TYPE_RPM":
+                msg = "Groq API requests-per-minute (RPM) rate limit reached."
+            else:
+                msg = "Groq API rate limit reached."
         return 429, requested_tokens, token_limit, msg
 
     # 3. HTTP 401 (Unauthorized)
@@ -117,10 +128,12 @@ class GroqScrutinyClient:
         if not self.is_configured():
             return None
         if self._client is None and AsyncGroq is not None:
-            # Initialize AsyncGroq with configured API key and timeout
+            # Initialize AsyncGroq with configured API key, timeout, and zero SDK-internal retries
+            # (Centralized scheduler strictly owns retry scheduling to prevent retry multiplication)
             self._client = AsyncGroq(
                 api_key=settings.GROQ_API_KEY.strip(),
                 timeout=settings.GROQ_TIMEOUT,
+                max_retries=0,
             )
         return self._client
 
@@ -129,14 +142,17 @@ class GroqScrutinyClient:
         system_prompt: str,
         user_prompt: str,
         model: Optional[str] = None,
+        application_id: Optional[str] = None,
+        batch_index: int = 1,
     ) -> Dict[str, Any]:
         """
-        Execute chat completion in JSON mode.
+        Execute chat completion in JSON mode through the centralized rate-limited scheduler.
         Returns a dict containing:
           - "raw_content": str (JSON string) or None
           - "model_used": str
           - "status": str ("SUCCESS", "DISABLED", "SKIPPED", "TECHNICAL_FAILURE")
           - "error_message": Optional[str]
+          - "retry_after": Optional[float]
         """
         if not settings.GROQ_ENABLED:
             logger.info("Groq LLM analysis is disabled via configuration (GROQ_ENABLED=false). Skipping inference.")
@@ -181,10 +197,49 @@ class GroqScrutinyClient:
         last_error_msg = None
 
         for attempt in range(max_retries + 1):
+            slot_id = None
             try:
+                # 0. Fast-track if provider is already in long cooldown (> 8.0s) to avoid blocking job execution
+                cd = groq_scheduler.get_cooldown_status()
+                if cd["in_cooldown"] and cd["remaining_seconds"] > 8.0:
+                    logger.info(
+                        f"Groq provider in active cooldown ({cd['reason']}, remaining={cd['remaining_seconds']:.1f}s). "
+                        f"Fast-tracking batch {batch_index} for automated scheduled retry."
+                    )
+                    return {
+                        "raw_content": None,
+                        "model_used": active_model,
+                        "status": "RETRY_SCHEDULED",
+                        "error_message": f"Groq API rate limit cooldown active ({cd['reason']}). Automated retry scheduled in {cd['remaining_seconds']:.1f}s.",
+                        "http_status": 429,
+                        "retry_after": cd["remaining_seconds"],
+                        "requested_tokens": None,
+                        "token_limit": None,
+                    }
+
+                # 1. Acquire scheduled slot under centralized Groq rate budget
+                try:
+                    slot_id = await groq_scheduler.acquire_slot(
+                        application_id=application_id or "general",
+                        batch_index=batch_index,
+                        max_wait_seconds=settings.GROQ_TIMEOUT + 30.0,
+                    )
+                except TimeoutError as te:
+                    logger.warning(f"Scheduler slot acquisition timed out on attempt {attempt + 1}: {te}")
+                    return {
+                        "raw_content": None,
+                        "model_used": active_model,
+                        "status": "RETRY_SCHEDULED",
+                        "error_message": f"Centralized Groq request scheduler timed out waiting for slot: {str(te)}",
+                        "http_status": 429,
+                        "retry_after": 10.0,
+                        "requested_tokens": None,
+                        "token_limit": None,
+                    }
+
                 logger.info(
                     f"Dispatching advisory scrutiny inference to Groq (model={active_model}, "
-                    f"timeout={settings.GROQ_TIMEOUT}s, attempt={attempt + 1}/{max_retries + 1})..."
+                    f"timeout={settings.GROQ_TIMEOUT}s, slot={slot_id}, attempt={attempt + 1}/{max_retries + 1})..."
                 )
                 response = await client.chat.completions.create(
                     model=active_model,
@@ -197,12 +252,18 @@ class GroqScrutinyClient:
                     temperature=0.1,  # Low temperature for factual consistency
                 )
 
+                if slot_id:
+                    groq_scheduler.finish_slot(slot_id, success=True)
+
                 if not response.choices or not response.choices[0].message:
                     return {
                         "raw_content": None,
                         "model_used": active_model,
                         "status": "TECHNICAL_FAILURE",
                         "error_message": "Groq returned an empty completion response.",
+                        "http_status": 204,
+                        "requested_tokens": None,
+                        "token_limit": None,
                     }
 
                 content = response.choices[0].message.content
@@ -218,6 +279,9 @@ class GroqScrutinyClient:
                 }
 
             except RateLimitError as rle:
+                if slot_id:
+                    groq_scheduler.finish_slot(slot_id, success=False)
+
                 status_code, req_tokens, lim_tokens, sanitized_msg = extract_groq_error_details(rle)
 
                 # Check if this RateLimitError is actually an oversized request (HTTP 413) or token limit overflow
@@ -239,6 +303,7 @@ class GroqScrutinyClient:
                 is_quota = "quota" in str(rle).lower() or "credit" in str(rle).lower() or "balance" in str(rle).lower()
                 if is_quota:
                     logger.warning(f"Groq Quota Exceeded (aborting retries): {sanitized_msg}")
+                    groq_scheduler.set_global_cooldown(3600.0, reason="QUOTA_EXHAUSTED", error_message=sanitized_msg)
                     return {
                         "raw_content": None,
                         "model_used": active_model,
@@ -249,20 +314,36 @@ class GroqScrutinyClient:
                         "token_limit": lim_tokens,
                     }
 
-                # RPM rate limit: back off and retry
-                if attempt < max_retries:
-                    wait_sec = 2.0 * (attempt + 1)
-                    logger.warning(f"Rate limited by Groq on attempt {attempt + 1}. Backing off {wait_sec}s...")
+                # Parse header-based or message-based retry delay with strict classification
+                headers = getattr(getattr(rle, "response", None), "headers", None)
+                limit_type = classify_rate_limit(str(rle), headers)
+                retry_delay = parse_retry_after(str(rle), headers) or (5.0 * (attempt + 1))
+                groq_scheduler.set_global_cooldown(
+                    retry_delay,
+                    reason=limit_type,
+                    error_message=sanitized_msg,
+                    retry_after=retry_delay,
+                )
+
+                # Short rate limit (RPM/TPM <= 8.0s): back off in memory and retry if within attempt budget
+                if attempt < max_retries and retry_delay <= 8.0 and limit_type not in ("RATE_LIMIT_TYPE_TPD", "RATE_LIMIT_TYPE_RPD"):
                     import asyncio
+                    import random
+                    wait_sec = max(1.0, retry_delay) + random.uniform(0.2, 0.8)
+                    logger.warning(f"Rate limited by Groq on attempt {attempt + 1}. Global cooldown active. Waiting {wait_sec:.2f}s...")
                     await asyncio.sleep(wait_sec)
                     continue
                 else:
+                    is_terminal = (attempt >= max_retries) or (limit_type in ("RATE_LIMIT_TYPE_TPD", "RATE_LIMIT_TYPE_RPD") and retry_delay > 3600.0)
+                    status_val = "TECHNICAL_FAILURE" if is_terminal else "RETRY_SCHEDULED"
+                    err_suffix = " Retry limit reached. Please re-run scrutiny in a moment." if status_val == "TECHNICAL_FAILURE" else f" Automated retry scheduled in {retry_delay:.1f}s."
                     return {
                         "raw_content": None,
                         "model_used": active_model,
-                        "status": "TECHNICAL_FAILURE",
-                        "error_message": f"{sanitized_msg} Retry limit reached. Please re-run scrutiny in a moment.",
+                        "status": status_val,
+                        "error_message": f"{sanitized_msg}{err_suffix}",
                         "http_status": 429,
+                        "retry_after": retry_delay,
                         "requested_tokens": req_tokens,
                         "token_limit": lim_tokens,
                     }

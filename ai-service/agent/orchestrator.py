@@ -222,6 +222,7 @@ class LifecycleAgentOrchestrator:
                 ),
                 app_state=app_state,
                 version_hash=dossier["version_hash"],
+                groq_observations=llm_result.get("findings", []),
             )
             await tool_create_internal_notification(
                 application_id=application_id,
@@ -263,6 +264,7 @@ class LifecycleAgentOrchestrator:
                 ),
                 app_state=app_state,
                 version_hash=dossier["version_hash"],
+                groq_observations=pre_check.get("llm_findings") or [],
             )
             await tool_create_internal_notification(
                 application_id=application_id,
@@ -305,6 +307,7 @@ class LifecycleAgentOrchestrator:
                 ),
                 app_state=app_state,
                 version_hash=dossier["version_hash"],
+                groq_observations=pre_check.get("llm_findings") or [],
             )
             await tool_create_internal_notification(
                 application_id=application_id,
@@ -420,6 +423,7 @@ class LifecycleAgentOrchestrator:
                 ),
                 app_state=app_state,
                 version_hash=dossier["version_hash"],
+                groq_observations=llm_result.get("findings", []),
             )
             await tool_create_internal_notification(
                 application_id=application_id,
@@ -455,6 +459,7 @@ class LifecycleAgentOrchestrator:
                 rationale="All previous statutory deficiencies successfully resolved via institutional rejoinder. Stage advancement proposed.",
                 app_state=app_state,
                 version_hash=dossier["version_hash"],
+                groq_observations=pre_check.get("llm_findings") or [],
             )
             await tool_create_internal_notification(
                 application_id=application_id,
@@ -491,6 +496,7 @@ class LifecycleAgentOrchestrator:
                 rationale="Resubmitted evidence requires manual officer verification to confirm resolution.",
                 app_state=app_state,
                 version_hash=dossier["version_hash"],
+                groq_observations=pre_check.get("llm_findings") or [],
             )
             await tool_create_internal_notification(
                 application_id=application_id,

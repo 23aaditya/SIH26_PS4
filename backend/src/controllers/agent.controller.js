@@ -152,28 +152,85 @@ export const agentController = {
       if (targetAction.action_type === "PROPOSE_DEFICIENCY_NOTICE") {
         const inputPayload = targetAction.input_payload || {};
         const draft = inputPayload.draft_notice || {};
-        const deficiencyItems = draft.items || inputPayload.deficiency_items || [];
+        const deficiencyItems = req.body.approved_items || draft.statutory_deficiencies || draft.items || inputPayload.deficiency_items || [];
+        const approvedObservations = req.body.approved_observations ||
+          (draft.supplementary_observations || draft.advisory_observations || []).filter((o) => o.officer_action === 'INCLUDED');
         const dueDays = inputPayload.suggested_due_days || 10;
         const dueDate = new Date(now.getTime() + dueDays * 24 * 60 * 60 * 1000);
 
-        const itemizedBulletList = deficiencyItems.map((item, idx) => {
+        const appNum = application.applicationNumber || application.id;
+        const officerName = req.user.name || officerId;
+        const dueDaysStr = `${dueDays} Calendar Days`;
+        const dueDateStr = dueDate.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+        const issueDateStr = now.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+
+        // SECTION 1: Statutory Deficiencies Mandating Rectification
+        let section1Text = deficiencyItems.map((item, idx) => {
           const rule = item.rule_name || item.rule_id || "Statutory Requirement";
-          const clause = item.aph_clause || "APH 2024-2027";
-          const doc = (item.source_document || item.document_name)
-            ? ` [Document: ${item.source_document || item.document_name}${item.source_page || item.page_number ? ` p.${item.source_page || item.page_number}` : ""}]`
+          const clause = item.aph_clause ? `(${item.aph_clause})` : "(APH 2024-2027)";
+          const docRef = (item.source_document || item.document_name)
+            ? `\n  • Document Reference: ${item.source_document || item.document_name}${item.source_page || item.page_number ? ` (Page ${item.source_page || item.page_number})` : ""}`
             : "";
-          const evidence = item.evidence ? ` Evidence: ${item.evidence}.` : "";
-          const action = (item.corrective_action || item.recommendation)
-            ? ` Corrective Action Required: ${item.corrective_action || item.recommendation}`
+          const observedDefect = item.evidence
+            ? `\n  • Observed Statutory Defect: ${item.evidence}`
             : "";
-          return `${idx + 1}. [${rule}] (${clause})${doc}:${evidence}${action}`;
-        }).join("\n");
+          const actionReq = (item.corrective_action || item.recommendation)
+            ? `\n  • Mandatory Corrective Action: ${item.corrective_action || item.recommendation}`
+            : "";
+          return `Item 1.${idx + 1}: ${rule} ${clause}${docRef}${observedDefect}${actionReq}`;
+        }).join("\n\n");
+
+        if (!section1Text) {
+          section1Text = "None. All deterministic statutory checklist criteria satisfied.";
+        }
+
+        // SECTION 2: Supplementary Document Observations / Clarifications (Officer Approved)
+        let section2Text = "";
+        if (approvedObservations.length > 0) {
+          section2Text = approvedObservations.map((obs, idx) => {
+            const heading = obs.edited_heading || obs.heading || obs.finding_type?.replace(/_/g, " ") || "Supplementary Document Observation";
+            const docRef = obs.document_reference || (obs.source_document ? `${obs.source_document}${obs.source_page ? ` (Page ${obs.source_page})` : ""}` : "Submitted Application Dossier");
+            const formalPara = obs.edited_explanation || obs.formal_notice_paragraph || obs.explanation || "Supplementary observation requiring institutional clarification.";
+            const evidence = (obs.supporting_evidence || obs.evidence_excerpt) ? `\n  • Supporting Evidence: "${obs.supporting_evidence || obs.evidence_excerpt}"` : "";
+            const actionReq = (obs.edited_action || obs.required_action || obs.suggested_action) ? `\n  • Required Clarification / Corrective Action: ${obs.edited_action || obs.required_action || obs.suggested_action}` : "";
+            const verLim = obs.verification_limitation || (obs.excerpt_verified === false ? "Manual Excerpt Verification Required — direct document verification needed" : "Programmatically Verified against document bytes");
+            const verLimText = `\n  • Verification Status: ${verLim}`;
+
+            return `Item 2.${idx + 1}: ${heading}\n  • Document Reference: ${docRef}\n  • Observation: ${formalPara}${evidence}${actionReq}${verLimText}`;
+          }).join("\n\n");
+        }
+
+        let fullDeficiencyText = `================================================================================\n` +
+          `AICTE OFFICIAL DEFICIENCY NOTICE — STATUTORY RECTIFICATION & CLARIFICATION ORDER\n` +
+          `Application Number: ${appNum}\n` +
+          `Authorized By: AICTE Scrutiny Officer (${officerName})\n` +
+          `Date of Issuance: ${issueDateStr}\n` +
+          `Compliance Response Window: ${dueDaysStr} (Due Date: ${dueDateStr})\n` +
+          `Statutory Authority: AICTE Approval Process Handbook (APH 2024-2027)\n` +
+          `================================================================================\n\n` +
+          `PART I — STATUTORY DEFICIENCIES MANDATING RECTIFICATION\n` +
+          `(Deficiencies identified under mandatory deterministic AICTE APH regulations)\n\n` +
+          `${section1Text}\n\n`;
+
+        if (section2Text) {
+          fullDeficiencyText += `--------------------------------------------------------------------------------\n` +
+            `PART II — SUPPLEMENTARY DOCUMENT OBSERVATIONS & CLARIFICATIONS\n` +
+            `(Officer-reviewed and authorized qualitative observations requiring institutional explanation)\n\n` +
+            `${section2Text}\n\n`;
+        }
+
+        fullDeficiencyText += `================================================================================\n` +
+          `INSTRUCTIONS TO APPLICANT INSTITUTION:\n` +
+          `Please review the statutory deficiencies and supplementary observations specified above. ` +
+          `The Institution is required to provide itemized rejoinders and upload all necessary replacement ` +
+          `or supporting documents through the AICTE Web Portal prior to the stipulated compliance due date.\n` +
+          `================================================================================`;
+
+        if (notes && notes.trim()) {
+          fullDeficiencyText += `\n\nAdditional Officer Instructions:\n${notes.trim()}`;
+        }
 
         const summaryText = deficiencyItems.map((d) => d.rule_name || d.rule_id || "Statutory Requirement").join("; ");
-        const fullDeficiencyText = `[AICTE Official Deficiency Notice - Authorized by Scrutiny Officer ${req.user.name || officerId}]\n` +
-          `Statutory Authority: AICTE Approval Process Handbook (APH 2024-2027)\n` +
-          `Deficiency Items Identified:\n${itemizedBulletList}\n` +
-          (notes ? `\nOfficer Instructions: ${notes}` : "");
 
         await prisma.$transaction(async (tx) => {
           // A. Create official deficiency request
@@ -218,7 +275,7 @@ export const agentController = {
             },
           });
 
-          // D. Audit event
+          // D. Audit event preserving immutable originals and officer-approved selections
           await tx.auditEvent.create({
             data: {
               applicationId: application.id,
@@ -234,23 +291,40 @@ export const agentController = {
                 approvedBy: officerId,
                 notes,
                 deficiencyItemsCount: deficiencyItems.length,
+                approvedObservationsCount: approvedObservations.length,
+                original_observations: inputPayload.advisory_observations || inputPayload.supplementary_observations || [],
+                officer_approved_observations: approvedObservations,
               }),
             },
           });
 
-          // E. Notification to applicant institution
-          await tx.notification.create({
-            data: {
-              recipientUserId: application.createdById,
-              applicationId: application.id,
-              type: "deficiency_issued",
-              title: `Deficiency Raised for ${application.applicationNumber}`,
-              message: `AICTE Scrutiny Officer (${req.user.name || officerId}) issued official deficiency notice (${deficiencyItems.length} items): "${summaryText}". Statutory response window: ${dueDays} days.`,
-              priority: "urgent",
-              actionUrl: `/institution/applications/${application.id}`,
-              deduplicationKey: `${application.id}:agent_approved_deficiency:${actionId}`,
-            },
+          // E. Notification to applicant institution (safely upserted via deduplicationKey)
+          const notifKey = `${application.id}:agent_approved_deficiency:${actionId}`;
+          const existingNotif = await tx.notification.findUnique({
+            where: { deduplicationKey: notifKey },
           });
+          if (existingNotif) {
+            await tx.notification.update({
+              where: { deduplicationKey: notifKey },
+              data: {
+                message: `AICTE Scrutiny Officer (${req.user.name || officerId}) issued official deficiency notice (${deficiencyItems.length} items): "${summaryText}". Statutory response window: ${dueDays} days.`,
+                priority: "urgent",
+              },
+            });
+          } else {
+            await tx.notification.create({
+              data: {
+                recipientUserId: application.createdById,
+                applicationId: application.id,
+                type: "deficiency_issued",
+                title: `Deficiency Raised for ${application.applicationNumber}`,
+                message: `AICTE Scrutiny Officer (${req.user.name || officerId}) issued official deficiency notice (${deficiencyItems.length} items): "${summaryText}". Statutory response window: ${dueDays} days.`,
+                priority: "urgent",
+                actionUrl: `/institution/applications/${application.id}`,
+                deduplicationKey: notifKey,
+              },
+            });
+          }
         });
       } else if (targetAction.action_type === "PROPOSE_FORWARD_TO_NEXT_STAGE") {
         // Enforce Phase 4.3 eligibility gate
@@ -282,6 +356,7 @@ export const agentController = {
           },
         });
       } else if (targetAction.action_type === "REQUEST_HUMAN_REVIEW") {
+        const approvedObservations = req.body.approved_observations || [];
         await prisma.auditEvent.create({
           data: {
             applicationId: application.id,
@@ -294,6 +369,9 @@ export const agentController = {
               actionType: targetAction.action_type,
               acknowledgedBy: officerId,
               notes,
+              flaggedItemsCount: (req.body.approved_items || []).length,
+              acknowledgedObservationsCount: approvedObservations.length,
+              acknowledged_observations: approvedObservations,
             }),
           },
         });

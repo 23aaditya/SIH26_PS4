@@ -43,6 +43,9 @@ from agent.models import (
     ActionApprovalRequest,
     ActionRejectionRequest,
 )
+from llm.scheduler import init_scheduler_tables, groq_scheduler
+from llm.batch_store import init_batch_tables
+from llm.recovery_worker import recovery_worker
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -50,9 +53,11 @@ logger = logging.getLogger("ai_scrutiny_service")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Initialize SQLite job store and agent tables
+    # Initialize SQLite job store, agent tables, rate limiter scheduler, and batch store
     init_db()
     init_agent_tables()
+    init_scheduler_tables()
+    init_batch_tables()
     # Startup reconciliation: clean up dangling in-flight jobs from prior crashes/restarts
     reconciled_count = reconcile_startup_jobs()
     if reconciled_count > 0:
@@ -60,8 +65,11 @@ async def lifespan(app: FastAPI):
     reconciled_execs = reconcile_startup_executions()
     if reconciled_execs > 0:
         logger.info(f"Startup recovery: Reconciled {reconciled_execs} interrupted agent executions.")
-    logger.info("AI Scrutiny Assistant and Lifecycle Agent initialized. SQLite store ready.")
+    # Start the automated batch recovery worker daemon
+    recovery_worker.start()
+    logger.info("AI Scrutiny Assistant and Lifecycle Agent initialized. SQLite store & recovery worker ready.")
     yield
+    recovery_worker.stop()
     logger.info("AI Scrutiny Assistant shutting down.")
 
 app = FastAPI(
@@ -210,6 +218,8 @@ async def run_scrutiny_analysis(
             app_data=app_data,
             extracted_docs=extracted_docs,
             deterministic_findings=pre_check.findings,
+            job_id=job_id,
+            version_hash=version_hash,
         )
         logger.info(
             f"Advisory LLM scrutiny finished for {app_num}: status={llm_result.status}, "
@@ -278,7 +288,7 @@ async def run_scrutiny_analysis(
             recommendations_parts.append(
                 f"- Qualitative Advisory: {len(llm_result.findings)} observation(s) flagged for human verification."
             )
-        elif llm_result.status in ("TECHNICAL_FAILURE", "PARTIAL_ANALYSIS"):
+        elif llm_result.status in ("TECHNICAL_FAILURE", "PARTIAL_ANALYSIS", "RETRY_SCHEDULED"):
             recommendations_parts.append(
                 f"- Qualitative Advisory Note: LLM scrutiny had technical limitation ({llm_result.error_message or 'service unavailable'}); deterministic findings remain authoritative."
             )
@@ -295,6 +305,8 @@ async def run_scrutiny_analysis(
             if llm_result.status == "PARTIAL_ANALYSIS":
                 prefix += " (Partial Analysis)"
             combined_content += f"\n\n--- {prefix} ({llm_result.model_used or 'Groq LLM'}) ---\n{llm_result.summary}"
+        elif llm_result.status == "RETRY_SCHEDULED":
+            combined_content += f"\n\n--- AI Qualitative Scrutiny Note ---\nAdvisory LLM analysis temporarily paused due to Groq API rate limits ({llm_result.error_message or 'cooldown active'}). Automated retry is scheduled. Deterministic statutory checks remain 100% authoritative."
         elif llm_result.status == "TECHNICAL_FAILURE" and llm_result.error_message:
             combined_content += f"\n\n--- AI Qualitative Scrutiny Note ---\nAdvisory LLM analysis was incomplete due to a technical limitation: {llm_result.error_message}. Deterministic statutory checks remain 100% authoritative."
 
@@ -334,6 +346,11 @@ async def run_scrutiny_analysis(
                         "tokenLimit": llm_result.token_limit,
                         "totalBatches": llm_result.total_batches,
                         "successfulBatches": llm_result.successful_batches,
+                        "retryScheduledBatches": llm_result.retry_scheduled_batches,
+                        "retryAfter": llm_result.retry_after,
+                        "nextRetryAt": llm_result.next_retry_at,
+                        "isPreservedFindings": llm_result.is_preserved_findings,
+                        "preservedFrom": llm_result.preserved_from,
                     },
                     "resubmissionDiff": resubmission_diff,
                     "isRerun": force_rerun or retry_llm,
@@ -392,7 +409,7 @@ async def trigger_scrutiny_job(payload: TriggerJobRequest, background_tasks: Bac
     Requires machine authentication. Returns existing job if one is already active.
     """
     try:
-        job = create_job(payload.application_id, payload.application_number)
+        job = create_job(payload.application_id, payload.application_number, payload.correlation_id)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -400,7 +417,7 @@ async def trigger_scrutiny_job(payload: TriggerJobRequest, background_tasks: Bac
         )
 
     # Only dispatch new background task if the job was just created (status PENDING and no completed_at)
-    if job.get("status") == "PENDING" and not job.get("completed_at"):
+    if job.get("is_new", True) and job.get("status") == "PENDING" and not job.get("completed_at"):
         background_tasks.add_task(
             run_scrutiny_analysis,
             job["job_id"],
@@ -425,10 +442,13 @@ async def trigger_scrutiny_job(payload: TriggerJobRequest, background_tasks: Bac
         report_id=job.get("report_id"),
         outcome=job.get("outcome"),
         findings_count=len(findings),
+        version_hash=job.get("version_hash"),
+        correlation_id=job.get("correlation_id") or payload.correlation_id,
         created_at=job.get("created_at", ""),
         completed_at=job.get("completed_at"),
         error_message=job.get("error_message"),
     )
+
 
 @app.get(
     "/api/v1/jobs/{job_id}",
@@ -458,10 +478,13 @@ async def get_job_status(job_id: str):
         report_id=job.get("report_id"),
         outcome=job.get("outcome"),
         findings_count=len(findings),
+        version_hash=job.get("version_hash"),
+        correlation_id=job.get("correlation_id"),
         created_at=job["created_at"],
         completed_at=job.get("completed_at"),
         error_message=job.get("error_message"),
     )
+
 
 @app.get(
     "/api/v1/jobs/application/{application_id}",
@@ -491,10 +514,25 @@ async def get_latest_job_for_app(application_id: str):
         report_id=job.get("report_id"),
         outcome=job.get("outcome"),
         findings_count=len(findings),
+        version_hash=job.get("version_hash"),
+        correlation_id=job.get("correlation_id"),
         created_at=job["created_at"],
         completed_at=job.get("completed_at"),
         error_message=job.get("error_message"),
     )
+
+
+@app.get(
+    "/api/v1/groq/rate-limit-status",
+    dependencies=[Depends(verify_service_authorization)],
+)
+async def get_groq_rate_limit_status():
+    """Retrieve global Groq request scheduling and cooldown diagnostics."""
+    return {
+        "cooldown": groq_scheduler.get_cooldown_status(),
+        "effective_rpm": groq_scheduler.effective_rpm,
+        "min_interval_seconds": groq_scheduler.min_interval,
+    }
 
 
 # -----------------------------------------------------------------------------
@@ -572,6 +610,12 @@ async def get_agent_execution_status(execution_id: str):
 )
 async def list_agent_actions_for_app(application_id: str, status: Optional[str] = None):
     """List all agent actions (pending approval, executed, etc.) for an application."""
+    try:
+        from agent.tools import synchronize_agent_action_observations
+        synchronize_agent_action_observations(application_id=application_id)
+    except Exception as e:
+        logger.debug(f"Action synchronization in list_agent_actions_for_app: {e}")
+
     actions = get_actions_for_application(application_id, status=status)
     return actions
 

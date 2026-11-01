@@ -408,12 +408,14 @@ def get_actions_for_application(
 def update_action(
     action_id: str,
     status: Optional[str] = None,
+    input_payload: Optional[Dict[str, Any]] = None,
     output_payload: Optional[Dict[str, Any]] = None,
     error_message: Optional[str] = None,
     approved_by: Optional[str] = None,
     rejection_reason: Optional[str] = None,
+    rationale: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Update action status, output, and approval info."""
+    """Update action status, input/output payload, and approval info."""
     now_iso = datetime.now(timezone.utc).isoformat()
 
     def _update():
@@ -426,6 +428,10 @@ def update_action(
             if status is not None:
                 updates.append("status = ?")
                 params.append(status)
+
+            if input_payload is not None:
+                updates.append("input_payload_json = ?")
+                params.append(json.dumps(input_payload))
 
             if output_payload is not None:
                 updates.append("output_payload_json = ?")
@@ -444,6 +450,10 @@ def update_action(
             if rejection_reason is not None:
                 updates.append("rejection_reason = ?")
                 params.append(rejection_reason)
+
+            if rationale is not None:
+                updates.append("rationale = ?")
+                params.append(rationale)
 
             params.append(action_id)
             cursor.execute(

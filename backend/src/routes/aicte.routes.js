@@ -53,6 +53,8 @@ router.get("/applications/:id/assignments", aicteController.getAssignments);
 router.get("/applications/:id/reports", aicteController.getReports);
 router.post("/applications/:id/trigger-ai", aicteController.triggerAiScrutiny);
 router.get("/applications/:id/ai-job-status/:jobId", aicteController.getAiJobStatus);
+router.get("/applications/:id/ai-job-latest", aicteController.getLatestAiJobStatus);
+router.get("/applications/:id/ai-job-status", aicteController.getLatestAiJobStatus);
 
 // Stage and assignment actions (Strictly Human only)
 router.post("/applications/:id/assign", denySystemService, aicteController.assignApplication);

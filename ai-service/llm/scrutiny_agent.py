@@ -6,11 +6,17 @@ Features bounded multi-document batching to eliminate Groq HTTP 413 context over
 import json
 import logging
 import re
+import time
 from typing import Dict, Any, List, Optional
 
 from config import settings
 from models.schemas import LLMFinding, LLMAnalysisResult
 from llm.client import groq_client
+from llm.batch_store import (
+    upsert_batch_record,
+    get_batch_by_id,
+    find_preserved_findings_from_history,
+)
 from llm.prompts import (
     SCRUTINY_SYSTEM_PROMPT,
     build_batch_scrutiny_user_prompt,
@@ -82,11 +88,14 @@ class ScrutinyAgent:
         app_data: Dict[str, Any],
         extracted_docs: Dict[str, Dict[str, Any]],
         deterministic_findings: List[Any],
+        job_id: Optional[str] = None,
+        version_hash: Optional[str] = None,
     ) -> LLMAnalysisResult:
         """
         Perform qualitative analysis on extracted application documents using bounded batching.
         Identifies contextual inconsistencies, missing schedules, and ambiguities.
-        Returns validated LLMAnalysisResult supporting partial analysis on batch failure.
+        Returns validated LLMAnalysisResult supporting partial analysis on batch failure,
+        resilient batch retries, and historical finding preservation for unchanged versions.
         """
         # If disabled or unconfigured, return safe non-failing result immediately
         if not settings.GROQ_ENABLED:
@@ -141,17 +150,39 @@ class ScrutinyAgent:
             batch_summaries: List[str] = []
             batch_errors: List[str] = []
             successful_batches = 0
+            retry_scheduled_batches = 0
+            last_retry_delay: Optional[float] = None
             last_http_status: Optional[int] = None
             last_requested_tokens: Optional[int] = None
             last_token_limit: Optional[int] = None
             active_model = settings.GROQ_MODEL
+            app_id = str(app_data.get("id") or app_data.get("application_id") or "unknown")
 
             for b_idx, batch_docs in enumerate(batches):
                 batch_num = b_idx + 1
+                doc_ids_list = list(batch_docs.keys())
+                batch_id = f"{app_id}_{version_hash[:12] if version_hash else 'live'}_b{batch_num}"
                 logger.info(
                     f"Processing LLM scrutiny batch {batch_num}/{total_batches} "
-                    f"({len(batch_docs)} documents: {list(batch_docs.keys())})..."
+                    f"({len(batch_docs)} documents: {doc_ids_list}, batch_id={batch_id})..."
                 )
+
+                # Check if this batch was already successfully analyzed and persisted
+                if version_hash:
+                    persisted = get_batch_by_id(batch_id)
+                    if persisted and persisted.get("status") == "SUCCESS" and persisted.get("findings_json"):
+                        logger.info(f"Reusing existing successful batch {batch_id} for version {version_hash[:10]}")
+                        try:
+                            saved_f = json.loads(persisted["findings_json"])
+                            for item in saved_f:
+                                if isinstance(item, dict):
+                                    all_findings.append(LLMFinding(**item))
+                            if persisted.get("summary_text"):
+                                batch_summaries.append(persisted["summary_text"])
+                            successful_batches += 1
+                            continue
+                        except Exception as parse_err:
+                            logger.warning(f"Failed to load cached batch findings: {parse_err}")
 
                 # 2. Build bounded user prompt for this specific batch
                 user_prompt = build_batch_scrutiny_user_prompt(
@@ -163,11 +194,27 @@ class ScrutinyAgent:
                     max_doc_chars=settings.GROQ_MAX_DOC_CHARS,
                 )
 
-                # 3. Invoke Groq completion in JSON mode
+                # Persist processing state
+                if version_hash:
+                    upsert_batch_record(
+                        batch_id=batch_id,
+                        job_id=job_id or "unknown",
+                        application_id=app_id,
+                        version_hash=version_hash,
+                        batch_index=batch_num,
+                        total_batches=total_batches,
+                        doc_ids=doc_ids_list,
+                        status="PROCESSING",
+                        prompt_text=user_prompt,
+                    )
+
+                # 3. Invoke Groq completion in JSON mode through centralized scheduler
                 completion_result = await self.client.generate_chat_completion(
                     system_prompt=SCRUTINY_SYSTEM_PROMPT,
                     user_prompt=user_prompt,
                     model=settings.GROQ_MODEL,
+                    application_id=app_id,
+                    batch_index=batch_num,
                 )
 
                 b_status = completion_result.get("status")
@@ -177,6 +224,7 @@ class ScrutinyAgent:
                 b_http_status = completion_result.get("http_status")
                 b_req_tokens = completion_result.get("requested_tokens")
                 b_lim_tokens = completion_result.get("token_limit")
+                b_retry_after = completion_result.get("retry_after")
 
                 if b_http_status:
                     last_http_status = b_http_status
@@ -191,7 +239,46 @@ class ScrutinyAgent:
                     logger.warning(
                         f"Batch {batch_num}/{total_batches} failed with status {b_status}: {err_desc}"
                     )
-                    batch_errors.append(f"Batch {batch_num} ({', '.join(batch_docs.keys())}): {err_desc}")
+                    is_rate_limit = (b_http_status == 429) or ("rate limit" in err_desc.lower())
+                    if is_rate_limit:
+                        retry_scheduled_batches += 1
+                        last_retry_delay = b_retry_after or 10.0
+                        if version_hash:
+                            upsert_batch_record(
+                                batch_id=batch_id,
+                                job_id=job_id or "unknown",
+                                application_id=app_id,
+                                version_hash=version_hash,
+                                batch_index=batch_num,
+                                total_batches=total_batches,
+                                doc_ids=doc_ids_list,
+                                status="RETRY_SCHEDULED",
+                                error_message=err_desc,
+                                next_retry_at=time.time() + last_retry_delay,
+                                http_status=429,
+                                prompt_text=user_prompt,
+                            )
+                            try:
+                                from llm.recovery_worker import recovery_worker
+                                recovery_worker.wake_up()
+                            except Exception:
+                                pass
+                        batch_errors.append(f"Batch {batch_num} ({', '.join(doc_ids_list)}): Rate limit reached; retry scheduled in {last_retry_delay:.1f}s")
+                    else:
+                        if version_hash:
+                            upsert_batch_record(
+                                batch_id=batch_id,
+                                job_id=job_id or "unknown",
+                                application_id=app_id,
+                                version_hash=version_hash,
+                                batch_index=batch_num,
+                                total_batches=total_batches,
+                                doc_ids=doc_ids_list,
+                                status="FAILED",
+                                error_message=err_desc,
+                                http_status=b_http_status,
+                            )
+                        batch_errors.append(f"Batch {batch_num} ({', '.join(doc_ids_list)}): {err_desc}")
                     continue
 
                 # 4. Parse and validate JSON structure for this batch
@@ -200,6 +287,18 @@ class ScrutinyAgent:
                 except json.JSONDecodeError as decode_err:
                     logger.warning(f"Malformed JSON in batch {batch_num}: {decode_err}")
                     batch_errors.append(f"Batch {batch_num}: Malformed JSON output from model")
+                    if version_hash:
+                        upsert_batch_record(
+                            batch_id=batch_id,
+                            job_id=job_id or "unknown",
+                            application_id=app_id,
+                            version_hash=version_hash,
+                            batch_index=batch_num,
+                            total_batches=total_batches,
+                            doc_ids=doc_ids_list,
+                            status="FAILED",
+                            error_message="Malformed JSON output from model",
+                        )
                     continue
 
                 if not isinstance(parsed, dict):
@@ -276,6 +375,23 @@ class ScrutinyAgent:
                 all_findings.extend(batch_findings)
                 successful_batches += 1
 
+                # Persist batch success
+                if version_hash:
+                    upsert_batch_record(
+                        batch_id=batch_id,
+                        job_id=job_id or "unknown",
+                        application_id=app_id,
+                        version_hash=version_hash,
+                        batch_index=batch_num,
+                        total_batches=total_batches,
+                        doc_ids=doc_ids_list,
+                        status="SUCCESS",
+                        findings=[f.model_dump() for f in batch_findings],
+                        summary=b_summary,
+                        http_status=200,
+                        prompt_text=user_prompt,
+                    )
+
             # 5. Deduplicate findings across batches
             seen_signatures = set()
             unique_findings: List[LLMFinding] = []
@@ -294,6 +410,9 @@ class ScrutinyAgent:
                 combined_summary = "No qualitative discrepancies or conditional clauses detected across submitted documents."
 
             # 7. Determine overall LLM status
+            is_preserved = False
+            preserved_source = None
+
             if successful_batches == total_batches:
                 overall_status = "SUCCESS"
                 overall_error = None
@@ -301,10 +420,17 @@ class ScrutinyAgent:
                 overall_status = "PARTIAL_ANALYSIS"
                 overall_error = (
                     f"LLM qualitative scrutiny was partially completed: {total_batches - successful_batches} of "
-                    f"{total_batches} document batch(es) failed: {'; '.join(batch_errors)}. "
+                    f"{total_batches} document batch(es) failed or awaiting retry: {'; '.join(batch_errors)}. "
                     f"Findings from successful batches are preserved."
                 )
                 combined_summary = f"[Partial Analysis: {successful_batches}/{total_batches} batches processed] {combined_summary}"
+            elif retry_scheduled_batches > 0:
+                overall_status = "RETRY_SCHEDULED"
+                overall_error = (
+                    f"Groq qualitative scrutiny temporarily paused (API rate limit). "
+                    f"{retry_scheduled_batches} of {total_batches} batch(es) scheduled for automated retry after cooldown ({last_retry_delay or 10.0:.1f}s)."
+                )
+                combined_summary = None
             else:
                 overall_status = "TECHNICAL_FAILURE"
                 overall_error = (
@@ -313,9 +439,23 @@ class ScrutinyAgent:
                 )
                 combined_summary = None
 
+            # Phase 5: Preserve previously generated findings on the same document version!
+            if len(unique_findings) == 0 and version_hash:
+                source_id, prev_findings, prev_sum = find_preserved_findings_from_history(app_id, version_hash)
+                if prev_findings:
+                    logger.info(
+                        f"Preserving {len(prev_findings)} valid findings from prior report/job {source_id} "
+                        f"for version {version_hash[:10]} (current attempt status={overall_status})"
+                    )
+                    is_preserved = True
+                    preserved_source = source_id
+                    unique_findings = [LLMFinding(**item) if isinstance(item, dict) else item for item in prev_findings]
+                    if not combined_summary and prev_sum:
+                        combined_summary = prev_sum
+
             logger.info(
                 f"LLM analysis concluded: status={overall_status}, batches={successful_batches}/{total_batches}, "
-                f"findings={len(unique_findings)}, http_status={last_http_status}"
+                f"findings={len(unique_findings)}, preserved={is_preserved}, http_status={last_http_status}"
             )
 
             return LLMAnalysisResult(
@@ -329,6 +469,11 @@ class ScrutinyAgent:
                 token_limit=last_token_limit,
                 total_batches=total_batches,
                 successful_batches=successful_batches,
+                retry_scheduled_batches=retry_scheduled_batches,
+                retry_after=last_retry_delay,
+                next_retry_at=(time.time() + last_retry_delay) if last_retry_delay else None,
+                is_preserved_findings=is_preserved,
+                preserved_from=preserved_source,
             )
 
         except Exception as e:

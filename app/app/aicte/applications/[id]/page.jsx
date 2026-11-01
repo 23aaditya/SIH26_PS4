@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/components/providers/AuthProvider";
@@ -36,6 +36,7 @@ import {
   User,
   MessageSquare,
   Loader2,
+  Search,
 } from "lucide-react";
 import { ApplicationTeamWidget } from "@/components/aicte/ApplicationTeamWidget";
 import { ApplicationCommunicationPanel } from "@/components/aicte/ApplicationCommunicationPanel";
@@ -190,6 +191,41 @@ function AgentDeficiencyProposalCard({
 
   const recipient = draft.recipient_institution || transitionProposal.applicant_institution || reviewRequest.applicant_institution || action.input_payload?.institution_name || "Applicant Institution";
   const dueDays = draft.suggested_due_days || action.input_payload?.suggested_due_days || 10;
+
+  const rawAdvisoryObs =
+    draft.advisory_observations ||
+    reviewRequest.advisory_observations ||
+    transitionProposal.advisory_observations ||
+    action.input_payload?.advisory_observations ||
+    action.input_payload?.supplementary_observations ||
+    [];
+
+  const [advisoryObservations, setAdvisoryObservations] = useState(rawAdvisoryObs);
+
+  useEffect(() => {
+    setAdvisoryObservations(rawAdvisoryObs);
+  }, [action.action_id, JSON.stringify(rawAdvisoryObs)]);
+
+  const toggleObs = (obsId) => {
+    setAdvisoryObservations((prev) =>
+      prev.map((obs) => {
+        if (obs.observation_id === obsId) {
+          const current = obs.officer_action || "EXCLUDED";
+          return {
+            ...obs,
+            officer_action: current === "INCLUDED" ? "EXCLUDED" : "INCLUDED",
+          };
+        }
+        return obs;
+      })
+    );
+  };
+
+  const updateObsField = (obsId, field, val) => {
+    setAdvisoryObservations((prev) =>
+      prev.map((obs) => (obs.observation_id === obsId ? { ...obs, [field]: val } : obs))
+    );
+  };
 
   // Stale detection: proposal was generated from a different dossier version (relevant when awaiting approval)
   const proposalHash = action.input_payload?.version_hash;
@@ -553,6 +589,151 @@ function AgentDeficiencyProposalCard({
           </>
         )}
 
+        {/* Universal Supplementary Groq LLM Observations Block */}
+        {advisoryObservations && advisoryObservations.length > 0 && (
+          <div className="space-y-3 pt-3 border-t border-slate-200">
+            <div className="flex items-center justify-between border-b border-slate-200/80 pb-2">
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
+                  <Bot className="h-4 w-4 text-indigo-600" />
+                  Groq Qualitative Scrutiny Observations ({advisoryObservations.length})
+                </span>
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-900 border border-blue-200">
+                  Officer Discretion Gate
+                </span>
+              </div>
+              <span className="text-[11px] text-slate-500">
+                {isDeficiencyNotice
+                  ? "Defaults to EXCLUDED. Check to include in official deficiency notice."
+                  : "Defaults to EXCLUDED. Check to include in formal review record."}
+              </span>
+            </div>
+
+            {action.input_payload?.batch_progress?.is_partial && (
+              <div className="p-2.5 bg-amber-50 rounded border border-amber-200 text-xs text-amber-900 flex items-center justify-between">
+                <span>
+                  Evaluating Batches ({action.input_payload.batch_progress.completed_batches || 1} of{" "}
+                  {action.input_payload.batch_progress.total_batches || 2} batches completed)
+                </span>
+                <span className="text-[11px] font-mono text-amber-700">Async Recovery in progress</span>
+              </div>
+            )}
+
+            <div className="space-y-3">
+              {advisoryObservations.map((obs, idx) => {
+                const isIncluded = obs.officer_action === "INCLUDED";
+                const decodedHeading = decodeURIComponent(obs.heading || obs.title || `Observation #${idx + 1}`);
+                const decodedDoc = decodeURIComponent(
+                  obs.source_document_display ||
+                  obs.source_document ||
+                  obs.document_reference ||
+                  obs.document_ref ||
+                  "Submitted Document"
+                );
+                const pageNum = obs.source_page || obs.page_number || 1;
+
+                return (
+                  <div
+                    key={obs.observation_id || idx}
+                    className={`p-3.5 rounded-lg border transition-all ${
+                      isIncluded
+                        ? "bg-indigo-50/40 border-indigo-300 ring-1 ring-indigo-200"
+                        : "bg-white border-slate-200 opacity-90"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2 flex-wrap pb-2 border-b border-slate-100">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          id={`obs-${obs.observation_id || idx}`}
+                          checked={isIncluded}
+                          onChange={() => toggleObs(obs.observation_id)}
+                          disabled={!isWaiting}
+                          className="h-4 w-4 rounded text-indigo-600 border-slate-300 focus:ring-indigo-500 cursor-pointer disabled:cursor-not-allowed"
+                        />
+                        <label
+                          htmlFor={`obs-${obs.observation_id || idx}`}
+                          className="font-bold text-slate-900 text-xs cursor-pointer select-none"
+                        >
+                          {idx + 1}. {decodedHeading}
+                        </label>
+                        <span
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                            isIncluded
+                              ? "bg-indigo-100 text-indigo-900 border border-indigo-300"
+                              : "bg-slate-100 text-slate-600 border border-slate-200"
+                          }`}
+                        >
+                          {isIncluded ? "Included in Official Notice Draft" : "Excluded from Draft"}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-[10px] font-mono bg-slate-100 text-slate-700 px-2 py-0.5 rounded border border-slate-200">
+                          {decodedDoc} {pageNum ? `(p. ${pageNum})` : ""}
+                        </span>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">
+                          {obs.severity || "ADVISORY"}
+                        </span>
+                        {obs.confidence && (
+                          <span className="text-[10px] font-mono text-slate-500">
+                            {Math.round(obs.confidence * 100)}% Conf
+                          </span>
+                        )}
+                        {obs.excerpt_verified && (
+                          <span className="text-[10px] font-medium bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded border border-emerald-300">
+                            ✓ Programmatically Verified
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="pt-2 space-y-2 text-xs">
+                      {isWaiting ? (
+                        <div className="space-y-1">
+                          <Label className="text-[11px] font-semibold text-slate-700">
+                            Officer Editable Observation Text
+                          </Label>
+                          <Textarea
+                            rows={2}
+                            value={obs.edited_explanation !== null && obs.edited_explanation !== undefined ? obs.edited_explanation : (obs.formal_notice_paragraph || obs.explanation || "")}
+                            onChange={(e) => updateObsField(obs.observation_id, "edited_explanation", e.target.value)}
+                            className="text-xs bg-white"
+                            disabled={actionProcessing}
+                            placeholder="Officer revised observation text..."
+                          />
+                        </div>
+                      ) : (
+                        <p className="text-slate-800 leading-relaxed">
+                          {obs.edited_explanation || obs.formal_notice_paragraph || obs.explanation}
+                        </p>
+                      )}
+
+                      {(obs.supporting_evidence || obs.evidence_excerpt) && (
+                        <blockquote className="border-l-2 border-indigo-400 pl-2.5 py-1 text-[11px] text-slate-600 italic bg-white/70 rounded-r">
+                          &ldquo;{decodeURIComponent(obs.supporting_evidence || obs.evidence_excerpt)}&rdquo;
+                        </blockquote>
+                      )}
+
+                      {obs.facts_vs_inference && (
+                        <div className="p-2 bg-slate-50 rounded border border-slate-200 text-[11px] text-slate-700">
+                          <strong>Facts vs Inference:</strong> {obs.facts_vs_inference}
+                        </div>
+                      )}
+
+                      {(obs.required_action || obs.suggested_action || obs.human_review_recommendation) && (
+                        <div className="p-2 bg-blue-50/70 rounded border border-blue-200 text-[11px] text-blue-950 flex items-start gap-1.5">
+                          <strong className="shrink-0 text-blue-900">Recommended Action:</strong>
+                          <span>{obs.edited_action || obs.required_action || obs.suggested_action || obs.human_review_recommendation}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Human Authority Protection Notice (ONLY when WAITING_FOR_APPROVAL) */}
         {isWaiting && (
           <div className="p-2.5 bg-amber-100/60 rounded border border-amber-300/80 text-[11px] text-amber-950 flex items-start gap-2">
@@ -591,7 +772,7 @@ function AgentDeficiencyProposalCard({
               </Button>
               <Button
                 size="sm"
-                onClick={() => onApprove(action.action_id)}
+                onClick={() => onApprove(action.action_id, advisoryObservations)}
                 disabled={actionProcessing || isStale}
                 className={`text-xs text-white font-semibold disabled:opacity-50 ${
                   isStageAdvancement ? "bg-emerald-600 hover:bg-emerald-700" : isHumanReview ? "bg-blue-600 hover:bg-blue-700" : "bg-amber-600 hover:bg-amber-700"
@@ -1124,6 +1305,9 @@ function CaseReviewContent() {
     } catch (e) {}
   }
 
+  const isRetryScheduled = aiMeta?.llmAnalysis?.status === "RETRY_SCHEDULED" || !!aiMeta?.llmAnalysis?.nextRetryAt;
+  const isLlmCooldownActive = isRetryScheduled || (aiMeta?.llmAnalysis?.nextRetryAt && new Date(aiMeta.llmAnalysis.nextRetryAt) > new Date());
+
   // Active deficiency guard: Application is currently awaiting institutional response
   const pendingDefFromApp = (app?.deficiencies || app?.deficiencyRequests || []).find((d) => d.status === "pending");
   const isDeficiencyActive = Boolean(
@@ -1202,7 +1386,7 @@ function CaseReviewContent() {
         setNotificationBanner("Deficiency letter successfully issued to institution. Status updated to 'Awaiting Institution'.");
         reloadData();
     };
-    const handleApproveAgentAction = async (actionId) => {
+    const handleApproveAgentAction = async (actionId, approvedObs = []) => {
         if (!actionId || actionProcessing) return;
         setActionProcessing(true);
         try {
@@ -1214,12 +1398,21 @@ function CaseReviewContent() {
                     "x-user-id": userProfile?.uid || userProfile?.email || "DEMO-AIC-034",
                     ...(token ? { Authorization: `Bearer ${token}` } : {}),
                 },
-                body: JSON.stringify({ notes: officerActionNotes }),
+                body: JSON.stringify({
+                    notes: officerActionNotes,
+                    approved_observations: approvedObs || [],
+                }),
                 credentials: "include",
             });
 
             if (res.ok) {
-                setNotificationBanner("Agent proposed deficiency notice officially authorized and issued to institution.");
+                const targetAct = (agentActions || []).find(a => a.action_id === actionId);
+                const isHuman = targetAct?.action_type === "REQUEST_HUMAN_REVIEW";
+                setNotificationBanner(
+                    isHuman
+                        ? "Human review advisory acknowledged and recorded in regulatory audit trail."
+                        : "Agent proposed deficiency notice officially authorized and issued to institution."
+                );
                 setOfficerActionNotes("");
                 await reloadData();
             } else {
@@ -2188,6 +2381,55 @@ function CaseReviewContent() {
                           </div>
                         </div>
 
+                        {/* Cooldown / Retry Scheduled Banner */}
+                        {isRetryScheduled && (
+                          <div className="p-3 bg-amber-50 border border-amber-300 rounded-lg text-xs space-y-1">
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold text-amber-900">
+                                Groq API Request Limit Reached — Automated Retry Scheduled
+                              </span>
+                              {isLlmCooldownActive && (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-200 text-amber-900">
+                                  Cooldown Active
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-amber-800 text-[11px]">
+                              Groq qualitative analysis has been temporarily paused. Successful findings have been preserved.
+                            </p>
+                          </div>
+                        )}
+
+                        {/* Distinct State Handling: PARTIAL_ANALYSIS */}
+                        {aiMeta?.llmAnalysis?.status === "PARTIAL_ANALYSIS" && (
+                          <div className="p-3.5 bg-amber-50/70 border border-amber-200 rounded-lg text-xs space-y-2">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2 font-semibold text-amber-900">
+                                <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
+                                <span>Partial Qualitative Scrutiny</span>
+                              </div>
+                              <span className="text-[10px] font-medium bg-amber-100 text-amber-800 px-2 py-0.5 rounded border border-amber-300">
+                                {aiMeta?.llmAnalysis?.findingsCount || (aiMeta?.llmFindings || []).length} Preserved Findings
+                              </span>
+                            </div>
+                            <p className="text-amber-800 text-[11px] leading-relaxed">
+                              {aiMeta?.llmAnalysis?.summary || "Some document batches could not be completed in the initial evaluation. Completed findings are preserved below."}
+                            </p>
+                            <div className="pt-1">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleTriggerAi({ forceRerun: true, retryLlm: true })}
+                                disabled={triggeringAi || isLlmCooldownActive}
+                                className="text-xs bg-white border-amber-300 text-amber-800 hover:bg-amber-50 h-7"
+                              >
+                                <RefreshCw className={`h-3 w-3 mr-1 ${triggeringAi ? "animate-spin" : ""}`} />
+                                {isLlmCooldownActive ? "Cooldown Active" : "Retry Qualitative LLM Scrutiny"}
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+
                         {/* Distinct State Handling: SKIPPED */}
                         {aiMeta?.llmAnalysis?.status === "SKIPPED" && (
                           <div className="p-3.5 bg-amber-50/70 border border-amber-200 rounded-lg text-xs space-y-1.5">
@@ -2242,8 +2484,16 @@ function CaseReviewContent() {
                           </div>
                         )}
 
-                        {/* Distinct State Handling: SUCCESS (Only state allowed to claim verified) */}
-                        {aiMeta?.llmAnalysis?.status === "SUCCESS" && (
+                        {/* Qualitative Review Synthesis Header & Summary */}
+                        {aiMeta?.llmAnalysis?.summary && (
+                          <div className="p-3 bg-indigo-50/40 rounded-lg border border-indigo-100 text-xs text-indigo-950 space-y-1">
+                            <strong className="block text-indigo-900">Qualitative Review Synthesis</strong>
+                            <p className="leading-relaxed text-indigo-900/90">{aiMeta.llmAnalysis.summary}</p>
+                          </div>
+                        )}
+
+                        {/* Distinct State Handling: SUCCESS OR PARTIAL_ANALYSIS */}
+                        {(aiMeta?.llmAnalysis?.status === "SUCCESS" || aiMeta?.llmAnalysis?.status === "PARTIAL_ANALYSIS") && (
                           <div className="space-y-2">
                             {(!aiMeta?.llmFindings || aiMeta.llmFindings.length === 0) ? (
                               <div className="p-4 bg-emerald-50/50 rounded-lg border border-emerald-200 text-center text-emerald-900">
@@ -2361,7 +2611,8 @@ function CaseReviewContent() {
                 </Button>
               </CardHeader>
               <CardContent className="p-4 space-y-3 text-xs">
-                {app.returnCount && app.returnCount > 0 ? (<div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3.5 space-y-2">
+                {app.returnCount && app.returnCount > 0 ? (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3.5 space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="font-bold text-amber-900">Deficiency Cycle #{app.returnCount}</span>
                       <span className="text-[11px] text-amber-700">Issued by Regional Scrutiny Officer</span>
@@ -2369,13 +2620,33 @@ function CaseReviewContent() {
                     <p className="text-slate-700 leading-relaxed">
                       {app.nextActionDescription}
                     </p>
-                  </div>) : (<div className="p-6 text-center text-slate-500">
+                  </div>
+                ) : agentActions.some(a => a.status === "WAITING_FOR_APPROVAL" && a.action_type === "PROPOSE_DEFICIENCY_NOTICE") ? (
+                  <div className="p-4 rounded-lg border border-amber-200 bg-amber-50/50 text-amber-900 space-y-1.5">
+                    <div className="flex items-center gap-2 font-semibold">
+                      <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
+                      <span>Pending Autonomous Deficiency Notice</span>
+                    </div>
+                    <p className="text-xs text-amber-800 leading-relaxed">
+                      No official deficiency letter has been issued yet. An AI-generated deficiency notice is currently awaiting authorization by the Scrutiny Officer above. Once authorized, the official notice will appear here.
+                    </p>
+                  </div>
+                ) : agentActions.some(a => a.status === "REJECTED" && a.action_type === "PROPOSE_DEFICIENCY_NOTICE") ? (
+                  <div className="p-4 rounded-lg border border-slate-200 bg-slate-50 text-slate-700 space-y-1">
+                    <p className="text-xs font-semibold text-slate-800">Proposed Deficiency Notice Declined</p>
+                    <p className="text-[11px] text-slate-500">
+                      The autonomous deficiency notice proposal was declined by the Scrutiny Officer. No statutory deficiency has been issued to the applicant institution.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="p-6 text-center text-slate-500">
                     <CheckCircle2 className="h-8 w-8 text-emerald-500 mx-auto mb-2"/>
                     <p className="text-xs font-semibold text-slate-800">No deficiencies recorded</p>
                     <p className="text-[11px] text-slate-400 mt-0.5">
                       All submitted documents currently satisfy preliminary checklist criteria.
                     </p>
-                  </div>)}
+                  </div>
+                )}
               </CardContent>
             </Card>
             </div>)}

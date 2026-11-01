@@ -628,6 +628,7 @@ export const aicteController = {
       }
       const { id } = req.params;
       const { forceRerun, retryLlm } = req.body || {};
+      const correlationId = req.headers["x-correlation-id"] || req.body?.correlationId || `corr-scrutiny-${id}-${Date.now()}`;
 
       const app = await prisma.application.findUnique({
         where: { id },
@@ -641,22 +642,26 @@ export const aicteController = {
       const aiSecret = process.env.AI_BACKEND_SECRET || "aicte_agent_secret_prod_2026_x89f_secure_token";
 
       try {
+        console.log(`[AiScrutiny] Triggering scrutiny job for application ${app.applicationNumber} (${id}) [corr=${correlationId}, forceRerun=${Boolean(forceRerun)}]`);
         const aiResp = await fetch(`${aiServiceUrl}/api/v1/jobs/trigger`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             "X-Service-Authorization": `Bearer ${aiSecret}`,
+            "X-Correlation-Id": correlationId,
           },
           body: JSON.stringify({
             application_id: app.id,
             application_number: app.applicationNumber,
             force_rerun: Boolean(forceRerun),
             retry_llm: Boolean(retryLlm),
+            correlation_id: correlationId,
           }),
         });
 
         if (!aiResp.ok) {
           const errData = await aiResp.json().catch(() => ({}));
+          console.warn(`[AiScrutiny] AI microservice trigger returned HTTP ${aiResp.status}:`, errData);
           return res.status(aiResp.status).json({
             error: errData.detail || `AI service returned error HTTP ${aiResp.status}`,
             code: "AI_SERVICE_ERROR",
@@ -664,13 +669,18 @@ export const aicteController = {
         }
 
         const jobData = await aiResp.json();
-        // Trigger autonomous agent next-action evaluation for the evaluated dossier
-        agentEventService.dispatchLifecycleEvent(
-          "SCRUTINY_COMPLETED",
-          app.id,
-          { forceRerun: Boolean(forceRerun), retryLlm: Boolean(retryLlm) },
-          req.user?.id
-        );
+        console.log(`[AiScrutiny] Job acknowledged: ${jobData.job_id} status=${jobData.status} outcome=${jobData.outcome} [corr=${correlationId}]`);
+
+        // If job completed immediately (reused existing completed analysis), notify lifecycle agent
+        if (jobData.status === "COMPLETED") {
+          agentEventService.dispatchLifecycleEvent(
+            "SCRUTINY_COMPLETED",
+            app.id,
+            { reportId: jobData.report_id, outcome: jobData.outcome, forceRerun: Boolean(forceRerun) },
+            req.user?.id,
+            correlationId
+          );
+        }
 
         return res.json({
           success: true,
@@ -680,9 +690,27 @@ export const aicteController = {
           applicationNumber: app.applicationNumber,
           reportId: jobData.report_id,
           outcome: jobData.outcome,
+          findingsCount: jobData.findings_count || 0,
+          versionHash: jobData.version_hash || null,
+          correlationId: correlationId,
           createdAt: jobData.created_at,
+          completedAt: jobData.completed_at || null,
+          errorMessage: jobData.error_message || null,
+          job: {
+            job_id: jobData.job_id,
+            status: jobData.status,
+            report_id: jobData.report_id,
+            outcome: jobData.outcome,
+            findings_count: jobData.findings_count || 0,
+            version_hash: jobData.version_hash || null,
+            correlation_id: correlationId,
+            created_at: jobData.created_at,
+            completed_at: jobData.completed_at || null,
+            error_message: jobData.error_message || null,
+          },
         });
       } catch (connErr) {
+        console.error(`[AiScrutiny] Service connection error: ${connErr.message}`);
         return res.status(503).json({
           error: "AI scrutiny microservice is currently unreachable at http://127.0.0.1:8000.",
           code: "AI_SERVICE_UNAVAILABLE",
@@ -701,6 +729,7 @@ export const aicteController = {
         return res.status(403).json({ error: "Access denied." });
       }
       const { id, jobId } = req.params;
+      const correlationId = req.headers["x-correlation-id"] || req.query?.correlationId || `corr-poll-${id}-${jobId}`;
 
       const aiServiceUrl = process.env.AI_SERVICE_URL || "http://127.0.0.1:8000";
       const aiSecret = process.env.AI_BACKEND_SECRET || "aicte_agent_secret_prod_2026_x89f_secure_token";
@@ -709,6 +738,7 @@ export const aicteController = {
         const aiResp = await fetch(`${aiServiceUrl}/api/v1/jobs/${jobId}`, {
           headers: {
             "X-Service-Authorization": `Bearer ${aiSecret}`,
+            "X-Correlation-Id": correlationId,
           },
         });
 
@@ -721,13 +751,17 @@ export const aicteController = {
         }
 
         const jobData = await aiResp.json();
-        // Trigger autonomous agent next-action evaluation for the evaluated dossier
-        agentEventService.dispatchLifecycleEvent(
-          "SCRUTINY_COMPLETED",
-          app.id,
-          { forceRerun: Boolean(forceRerun), retryLlm: Boolean(retryLlm) },
-          req.user?.id
-        );
+
+        // When job reaches terminal COMPLETED state, ensure lifecycle agent is notified
+        if (jobData.status === "COMPLETED") {
+          agentEventService.dispatchLifecycleEvent(
+            "SCRUTINY_COMPLETED",
+            id,
+            { reportId: jobData.report_id, outcome: jobData.outcome },
+            req.user?.id,
+            correlationId
+          );
+        }
 
         return res.json({
           success: true,
@@ -737,9 +771,24 @@ export const aicteController = {
           status: jobData.status,
           reportId: jobData.report_id,
           outcome: jobData.outcome,
-          findingsCount: jobData.findings_count,
+          findingsCount: jobData.findings_count || 0,
+          versionHash: jobData.version_hash || null,
+          correlationId: jobData.correlation_id || correlationId,
+          createdAt: jobData.created_at,
           completedAt: jobData.completed_at,
           errorMessage: jobData.error_message,
+          job: {
+            job_id: jobData.job_id,
+            status: jobData.status,
+            report_id: jobData.report_id,
+            outcome: jobData.outcome,
+            findings_count: jobData.findings_count || 0,
+            version_hash: jobData.version_hash || null,
+            correlation_id: jobData.correlation_id || correlationId,
+            created_at: jobData.created_at,
+            completed_at: jobData.completed_at,
+            error_message: jobData.error_message,
+          },
         });
       } catch (connErr) {
         return res.status(503).json({
@@ -748,6 +797,120 @@ export const aicteController = {
           detail: connErr.message,
         });
       }
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  // ─── GET /api/aicte/applications/:id/ai-job-latest ────────────────────────
+  async getLatestAiJobStatus(req, res, next) {
+    try {
+      if (!req.user || req.user.accountType === "institution") {
+        return res.status(403).json({ error: "Access denied." });
+      }
+      const { id } = req.params;
+      const correlationId = req.headers["x-correlation-id"] || req.query?.correlationId || `corr-latest-${id}`;
+
+      const aiServiceUrl = process.env.AI_SERVICE_URL || "http://127.0.0.1:8000";
+      const aiSecret = process.env.AI_BACKEND_SECRET || "aicte_agent_secret_prod_2026_x89f_secure_token";
+
+      try {
+        const aiResp = await fetch(`${aiServiceUrl}/api/v1/jobs/application/${id}`, {
+          headers: {
+            "X-Service-Authorization": `Bearer ${aiSecret}`,
+            "X-Correlation-Id": correlationId,
+          },
+        });
+
+        if (aiResp.status === 404) {
+          return res.json({
+            success: true,
+            hasJob: false,
+            status: "IDLE",
+            job: null,
+          });
+        }
+
+        if (!aiResp.ok) {
+          const errData = await aiResp.json().catch(() => ({}));
+          return res.status(aiResp.status).json({
+            error: errData.detail || `Latest job lookup failed (HTTP ${aiResp.status})`,
+            code: "JOB_LOOKUP_FAILED",
+          });
+        }
+
+        const jobData = await aiResp.json();
+        return res.json({
+          success: true,
+          hasJob: true,
+          jobId: jobData.job_id,
+          applicationId: jobData.application_id,
+          applicationNumber: jobData.application_number,
+          status: jobData.status,
+          reportId: jobData.report_id,
+          outcome: jobData.outcome,
+          findingsCount: jobData.findings_count || 0,
+          versionHash: jobData.version_hash || null,
+          correlationId: jobData.correlation_id || correlationId,
+          createdAt: jobData.created_at,
+          completedAt: jobData.completed_at,
+          errorMessage: jobData.error_message,
+          job: {
+            job_id: jobData.job_id,
+            status: jobData.status,
+            report_id: jobData.report_id,
+            outcome: jobData.outcome,
+            findings_count: jobData.findings_count || 0,
+            version_hash: jobData.version_hash || null,
+            correlation_id: jobData.correlation_id || correlationId,
+            created_at: jobData.created_at,
+            completed_at: jobData.completed_at,
+            error_message: jobData.error_message,
+          },
+        });
+      } catch (connErr) {
+        return res.status(503).json({
+          error: "AI scrutiny microservice unreachable for status lookup.",
+          code: "AI_SERVICE_UNAVAILABLE",
+          detail: connErr.message,
+        });
+      }
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  // ─── GET /api/aicte/applications/:id/reports ──────────────────────────────
+  async getReports(req, res, next) {
+    try {
+      if (!req.user || req.user.accountType === "institution") {
+        return res.status(403).json({ error: "Access denied." });
+      }
+      const { id } = req.params;
+      
+      // 1. Fetch reports directly from ReviewReport table
+      const reports = await prisma.reviewReport.findMany({
+        where: { applicationId: id },
+        include: {
+          submittedBy: {
+            select: { id: true, name: true, employeeCode: true },
+          },
+          workflowStage: {
+            select: { id: true, stageKey: true, stageName: true },
+          },
+        },
+        orderBy: { submittedAt: "desc" },
+      });
+
+      if (reports.length > 0) {
+        return res.json(reports);
+      }
+
+      // Fallback: check workflow stages if any
+      const wfInstance = await workflowInstanceService.getForApplication(id);
+      if (!wfInstance) return res.json([]);
+      const stageReports = wfInstance.stages.flatMap(s => s.reports || []);
+      res.json(stageReports);
     } catch (err) {
       next(err);
     }

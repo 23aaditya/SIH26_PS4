@@ -1,4 +1,4 @@
-from typing import List, Optional, Literal
+from typing import List, Optional, Literal, Union
 from pydantic import BaseModel, Field
 
 class RuleFinding(BaseModel):
@@ -34,6 +34,7 @@ class TriggerJobRequest(BaseModel):
     force_rerun: bool = False
     retry_llm: bool = False
     is_resubmission: bool = False
+    correlation_id: Optional[str] = None
 
 class JobStatusResponse(BaseModel):
     job_id: str
@@ -43,6 +44,8 @@ class JobStatusResponse(BaseModel):
     report_id: Optional[str] = None
     outcome: Optional[str] = None
     findings_count: int = 0
+    version_hash: Optional[str] = None
+    correlation_id: Optional[str] = None
     created_at: str
     completed_at: Optional[str] = None
     error_message: Optional[str] = None
@@ -104,7 +107,7 @@ class LLMFinding(BaseModel):
     )
 
 class LLMAnalysisResult(BaseModel):
-    status: Literal["SUCCESS", "DISABLED", "SKIPPED", "TECHNICAL_FAILURE", "PARTIAL_ANALYSIS"] = "SUCCESS"
+    status: Literal["SUCCESS", "DISABLED", "SKIPPED", "TECHNICAL_FAILURE", "PARTIAL_ANALYSIS", "RETRY_SCHEDULED"] = "SUCCESS"
     model_used: Optional[str] = None
     findings: List[LLMFinding] = []
     summary: Optional[str] = None
@@ -114,4 +117,9 @@ class LLMAnalysisResult(BaseModel):
     token_limit: Optional[int] = None
     total_batches: Optional[int] = None
     successful_batches: Optional[int] = None
+    retry_scheduled_batches: Optional[int] = 0
+    retry_after: Optional[float] = None
+    next_retry_at: Optional[Union[float, str]] = None
+    is_preserved_findings: Optional[bool] = False
+    preserved_from: Optional[str] = None
 

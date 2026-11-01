@@ -65,6 +65,10 @@ def init_db():
                 ON scrutiny_jobs (application_id)
                 WHERE status IN ('PENDING', 'PROCESSING')
             """)
+            cursor.execute("PRAGMA table_info(scrutiny_jobs)")
+            cols = [row[1] for row in cursor.fetchall()]
+            if "correlation_id" not in cols:
+                cursor.execute("ALTER TABLE scrutiny_jobs ADD COLUMN correlation_id TEXT")
             conn.commit()
         finally:
             conn.close()
@@ -119,6 +123,7 @@ def get_completed_job_by_version(application_id: str, version_hash: str) -> Opti
 def create_job(
     application_id: str,
     application_number: Optional[str] = None,
+    correlation_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Enqueue a scrutiny job safely.
@@ -130,6 +135,7 @@ def create_job(
     active = get_active_job_for_application(application_id)
     if active:
         logger.info(f"Reusing existing active job {active['job_id']} for application {application_id}")
+        active["is_new"] = False
         return active
 
     def _insert():
@@ -141,10 +147,10 @@ def create_job(
             cursor.execute(
                 """
                 INSERT INTO scrutiny_jobs (
-                    job_id, application_id, application_number, status, created_at
-                ) VALUES (?, ?, ?, 'PENDING', ?)
+                    job_id, application_id, application_number, status, created_at, correlation_id
+                ) VALUES (?, ?, ?, 'PENDING', ?, ?)
                 """,
-                (job_id, application_id, application_number, now),
+                (job_id, application_id, application_number, now, correlation_id),
             )
             conn.commit()
             return {
@@ -154,6 +160,8 @@ def create_job(
                 "status": "PENDING",
                 "version_hash": None,
                 "created_at": now,
+                "correlation_id": correlation_id,
+                "is_new": True,
             }
         except sqlite3.IntegrityError as e:
             # Atomic conflict on idx_unique_active_app_job: another concurrent request inserted an active job
@@ -169,7 +177,9 @@ def create_job(
             )
             row = cursor.fetchone()
             if row:
-                return dict(row)
+                res = dict(row)
+                res["is_new"] = False
+                return res
             raise
         finally:
             conn.close()

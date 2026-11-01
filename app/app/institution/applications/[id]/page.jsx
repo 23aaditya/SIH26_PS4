@@ -585,15 +585,14 @@ function ApplicationDetailContent() {
 
           {/* Scrutiny Observation Snippet */}
           <div className="bg-amber-100/50 rounded-lg p-3 text-xs border border-amber-200/60 text-slate-800">
-            <span className="font-bold text-amber-950 uppercase tracking-wide text-[10px] block mb-0.5">
+            <span className="font-bold text-amber-950 uppercase tracking-wide text-[10px] block mb-1">
               Latest Scrutiny Note / Deficiency Reason:
             </span>
-            <p className="leading-relaxed">
-              {app.nextActionDescription ||
-                (app.deficiencies && app.deficiencies.length > 0
-                  ? app.deficiencies[0].deficiencyText
-                  : "Observations noted during statutory scrutiny against AICTE Approval Process Handbook (APH 2024-27) norms.")}
-            </p>
+            <div className="leading-relaxed whitespace-pre-line font-sans text-xs bg-white/70 p-3 rounded border border-amber-200/70">
+              {(app.deficiencies && app.deficiencies.length > 0 && app.deficiencies[0].deficiencyText) ||
+                app.nextActionDescription ||
+                "Observations noted during statutory scrutiny against AICTE Approval Process Handbook (APH 2024-27) norms."}
+            </div>
           </div>
 
           {/* 2 Clear Action Pathways */}
